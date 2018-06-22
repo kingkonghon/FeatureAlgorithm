@@ -53,24 +53,32 @@ def getStockQuoteFromDB(sql_config, start_date, end_date, price_field, high_fiel
     return trade_dates, stock_price, stock_high
 
 def getStockQuoteFromFile(stock_quote_file_name, start_date, end_date):
+    start_date_num = int(''.join([start_date[:4], start_date[5:7], start_date[8:]]))
+    end_date_num = int(''.join([end_date[:4], end_date[5:7], end_date[8:]]))
+
     stock_quote = {}
     for quote_name, file_name in stock_quote_file_name.items():
         tmp_h5_file = h5py.File(file_name, 'r')
 
         stock_quote[quote_name] = tmp_h5_file['data'][...]
+        tmp_trade_dates = tmp_h5_file['date'][...]
+        tmp_idx = (tmp_trade_dates >= start_date_num) & (tmp_trade_dates <= end_date_num)
+        stock_quote[quote_name] = stock_quote[quote_name][tmp_idx]
+
         if quote_name == 'open':
-            trade_dates = tmp_h5_file['date'][...]
+            # trade_dates = tmp_h5_file['date'][...]
+            trade_dates = tmp_trade_dates[tmp_idx]
             codes = tmp_h5_file['header'][...]
 
     codes = np.array(list(map(lambda x: x.decode('utf-8').split('.')[1], codes)))
     trade_dates = np.array(list(map(lambda x: str(x), trade_dates)))
     trade_dates = np.array(list(map(lambda x: '-'.join([x[:4], x[4:6], x[6:]]), trade_dates)))
 
-    tmp_idx = (trade_dates >= start_date) & (trade_dates <= end_date)
-
-    trade_dates = trade_dates[tmp_idx]
-    for quote_name, quote_data in stock_quote.items():
-        stock_quote[quote_name] = stock_quote[quote_name][tmp_idx]
+    # tmp_idx = (trade_dates >= start_date) & (trade_dates <= end_date)
+    #
+    # trade_dates = trade_dates[tmp_idx]
+    # for quote_name, quote_data in stock_quote.items():
+    #     stock_quote[quote_name] = stock_quote[quote_name][tmp_idx]
 
     stock_quote['tradable_flag'] = (stock_quote['tradable_flag'] == 0)
     stock_quote['not_st_flag'] = (stock_quote['not_st_flag'] == 0)

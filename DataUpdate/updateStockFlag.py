@@ -40,8 +40,8 @@ def updateIncrm(quant_engine, spider_engine):
     # fetch data from source
     tmp_fields = list(map(lambda x: '`%s`' % x, sourceFields))
     tmp_fields = ','.join(tmp_fields)
-    sql_statement = "select %s from `%s` where `%s` > '%s'" % (
-        tmp_fields, sourceTableName, sourceTimeStamp, target_max_timestamp)
+    sql_statement = "select %s from `%s` where (`%s` > '%s') and (%s != 'null')" % (
+        tmp_fields, sourceTableName, sourceTimeStamp, target_max_timestamp, sourceTimeStamp)
     incrm_data = pd.read_sql(sql_statement, spider_engine) # spider schema
 
     if incrm_data.empty:
@@ -51,7 +51,7 @@ def updateIncrm(quant_engine, spider_engine):
     incrm_data = renameDF(incrm_data, sourceFields, targetFields)
 
     # drop duplicates
-    incrm_data = incrm_data.drop_duplicates(['date'])
+    incrm_data = incrm_data.drop_duplicates(['date', 'code'])
 
     if incrm_data.empty:
         return
