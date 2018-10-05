@@ -157,6 +157,12 @@ ConUSIndexStationary = [
 
 ]
 
+ConEcoTS ={
+    'sourceTableName': 'MACROECONOMIC_TUSHARE',
+    'targetFields': ['m1_mom', 'm2_mom', 'ppi_yoy', 'ppi_mom', ''],
+}
+
+
 
 def airflowCallableOil():
     conf = CONF[0]

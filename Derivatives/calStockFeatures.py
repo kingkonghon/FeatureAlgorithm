@@ -169,7 +169,7 @@ ConTechStationary = {
     'condition': '',
     'chunkSize': 50,
     'isMultiProcess': True,
-    'processNum': 4
+    'processNum': 20
 }
 
 ConFunStationary = {
@@ -286,11 +286,11 @@ if __name__ == '__main__':
     #     features.run()
     # airflowCallableRankingAllStocks()
 
-    # features = StockStationaryTechnicalIndicatorMapping(**ConTechStationary)
-    # features.run()
-
-    features = StockStationaryFundamentalIndicatorMapping(**ConFunStationary)
+    features = StockStationaryTechnicalIndicatorMapping(**ConTechStationary)
     features.run()
+
+    # features = StockStationaryFundamentalIndicatorMapping(**ConFunStationary)
+    # features.run()
 
     # features = StockFundamentalTushareMapping(**ConFunTushare)
     # features.run()
