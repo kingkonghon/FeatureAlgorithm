@@ -205,6 +205,10 @@ class StockStationaryTechnicalIndicatorMapping:
             for tmp_result in pool_results:
                 data_result = tmp_result.get()
                 data_tot_result = data_tot_result.append(data_result)
+
+            pool.terminate()
+
+        # single process
         else:
             for code in code_list:
                 tmp_data = dataO.loc[dataO[self.codeField] == code] # dataO already sorted by date

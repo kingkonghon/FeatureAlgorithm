@@ -172,7 +172,6 @@ class StockStationaryFundamentalIndicatorMapping:
                 # dataO = dataO.sort_values(self.dateField)  # sort by date
 
                 # process chunk data
-                pool_results = []
                 for code in tmp_code:
                     tmp_data = dataO.loc[dataO[self.codeField] == code]  # dataO already sorted by date
                     tmp_data = tmp_data.sort_values(self.dateField)
@@ -195,7 +194,6 @@ class StockStationaryFundamentalIndicatorMapping:
                 # dataO = dataO.sort_values(self.dateField)  # sort by date
 
                 # process chunk data
-                pool_results = []
                 for single_date in tmp_date:
                     tmp_data = dataO.loc[dataO[self.dateField] == single_date]  # dataO already sorted by date
 
@@ -229,14 +227,14 @@ class StockStationaryFundamentalIndicatorMapping:
         trade_calendar = dataO[self.dateField].unique()
         trade_calendar = trade_calendar[trade_calendar > self.last_update_date]
 
-        data_tot_result = pd.DataFrame([])
+        # ==== calculate features
         if self.isMultiProcess:
             # build pool
             pool = Pool(processes=self.processNum)
-            pool_results = []
 
             # calculate time series features
             data_tot_result_time_series = pd.DataFrame([])
+            pool_results = []
             for code in code_list:
                 tmp_data = dataO.loc[dataO[self.codeField] == code]
                 tmp_data = tmp_data.sort_values(self.dateField) # sort by date
@@ -254,6 +252,7 @@ class StockStationaryFundamentalIndicatorMapping:
 
             # calculate time horizon features
             data_tot_result_time_horizon = pd.DataFrame([])
+            pool_results = []
             for trade_date in trade_calendar:
                 tmp_data = dataO.loc[dataO[self.dateField] == trade_date]  # no need to sort date
 
@@ -267,6 +266,8 @@ class StockStationaryFundamentalIndicatorMapping:
             for tmp_result in pool_results:
                 data_result = tmp_result.get()
                 data_tot_result_time_horizon = data_tot_result_time_horizon.append(data_result)
+
+            pool.terminate()
 
         # single process
         else:
@@ -294,7 +295,7 @@ class StockStationaryFundamentalIndicatorMapping:
                 data_tot_result_time_horizon = data_tot_result_time_horizon.append(data_result)
 
         # write to sql (both multiprocess and single process)
-        data_tot_result = data_tot_result_time_series.merge(data_tot_result_time_horizon, how='outer') # combine time series and time horizon features
+        data_tot_result = data_tot_result_time_series.merge(data_tot_result_time_horizon, on=[self.dateField, self.codeField], how='outer') # combine time series and time horizon features
         data_tot_result = data_tot_result.loc[data_tot_result[self.dateField] > self.last_update_date] # truncate data
 
         if not data_tot_result.empty:
@@ -303,7 +304,6 @@ class StockStationaryFundamentalIndicatorMapping:
 
             # dump chunk data into sql
             writeDB(self.targetTableName, data_tot_result, ConfigQuant, self.if_exist)
-            self.if_exist = 'append'
 
     def coreComputationTimeSeries(self, tmp_data):
         data_result = tmp_data[[self.dateField, self.codeField]]
@@ -322,6 +322,7 @@ class StockStationaryFundamentalIndicatorMapping:
         # loop over fields
         for tmp_field in self.valueFields:
             tmp_value = np.log(tmp_data[tmp_field])  # take log for the distribution to be more normal
+            tmp_value = tmp_value.replace([np.inf, -np.inf], np.nan)
             # (value - mean) / std
             tmp_norm_value = (tmp_value - tmp_value.mean(skipna=True)) / tmp_value.std(skipna=True)
             tmp_norm_value.name = 'NORM_LOG_' + tmp_field

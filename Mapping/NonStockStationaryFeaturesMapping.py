@@ -30,7 +30,8 @@ class NonStockStationaryFeaturesMapping:
                                                                    self.targetTableName, self.dateField, self.lags, self.condition, self.alignFlag)
 
         # sql statement
-        fields = ",".join([self.dateField, self.openField, self.highField, self.lowField, self.closeField, self.volumeField])
+        # fields = ",".join([self.dateField, self.openField, self.highField, self.lowField, self.closeField, self.volumeField])
+        fields = ",".join([self.dateField, self.closeField, self.amountField])
         if is_full == 1:  # 全量
             self.state = "SELECT %s FROM %s" % (fields, self.sourceTableName)
             if self.condition != '':
@@ -62,7 +63,7 @@ class NonStockStationaryFeaturesMapping:
         data_result = pd.DataFrame(dataO[self.dateField])
 
         # MA, MA_DIFF...  (lags >= 2)
-        tmp_df = priceTechnicalIndicatorTimeSeries(dataO[self.closeField], self.lags, '')
+        tmp_df = priceTechnicalIndicatorTimeSeries(dataO[self.closeField], self.lags, 'PRICE')
         data_result = data_result.join(tmp_df)
 
         # AMT_MA ... AMT_OBV, AMOUNT_RATIO...

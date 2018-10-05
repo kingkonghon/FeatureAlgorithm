@@ -235,10 +235,11 @@ class StockFundamentalTushareMapping:
                     tmp_data_source_new = tmp_data_source_new.drop_duplicates([self.codeField, self.yearField, self.seasonField])
 
                     if not tmp_data_source_new.empty: # obsolete data
-                        is_new_data = True
-                        data_new_first_data = tmp_data_source_new[self.releaseDateField].min() # find the earliest report in new update data
-                        deleteObsoleteDataFromDB(code, data_new_first_data, self.dateField, self.codeField,
-                                                 self.targetTableName, ConfigQuant)  # delete obsolet data not earlier than the eariliest report date
+                        data_new_first_data = tmp_data_source_new[self.releaseDateField].min()  # find the earliest report in new update data
+                        if type(data_new_first_data).__name__ == 'str':  # else data_new_first_data is nan
+                            is_new_data = True
+                            deleteObsoleteDataFromDB(code, data_new_first_data, self.dateField, self.codeField,
+                                                     self.targetTableName, ConfigQuant)  # delete obsolet data not earlier than the eariliest report date
                 except KeyError:
                     is_new_data = True
                     data_new_first_data = '2007-01-01' # this stock code is new to the target table
@@ -281,11 +282,12 @@ class StockFundamentalTushareMapping:
                     tmp_data_source_new = tmp_data_source_new.drop_duplicates([self.codeField, self.yearField, self.seasonField])
 
                     if not tmp_data_source_new.empty:  # obsolete data
-                        has_new_data = True
                         tmp_data_new_first_data = tmp_data_source_new[
                             self.releaseDateField].min()  # find the earliest report in new update data
-                        deleteObsoleteDataFromDB(code, tmp_data_new_first_data, self.dateField, self.codeField,
-                                                 self.targetTableName, ConfigQuant)  # delete obsolet data later than the eariliest report date
+                        if type(tmp_data_new_first_data).__name__ == 'str': # else tmp_data_new_first_data is nan
+                            has_new_data = True
+                            deleteObsoleteDataFromDB(code, tmp_data_new_first_data, self.dateField, self.codeField,
+                                                     self.targetTableName, ConfigQuant)  # delete obsolet data later than the eariliest report date
                 except KeyError:
                     has_new_data = True  # this stock code is new to the target table
                     tmp_data_new_first_data = '2007-01-01'
