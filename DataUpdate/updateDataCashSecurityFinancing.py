@@ -57,6 +57,9 @@ def updateFull(start_date='2007-01-01'):
     data_full = data_full.rename(columns=tmp_rename_dict)
     data_full.loc[:, targetTimeStampField] = data_full[targetTimeStampField].apply(lambda x: x[:10])
 
+    # drop duplicated
+    data_full = data_full.drop_duplicates(targetTimeStampField)
+
     # change data type
     tmp_fields = targetField.copy()
     tmp_fields.remove(targetTimeStampField)

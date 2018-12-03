@@ -229,13 +229,16 @@ class StockFundamentalTushareMapping:
                 is_new_data = False
                 try:
                     tmp_target_latest_time_stamp = target_latest_time_stamp.loc[code, self.latestTimeStamp]
-                    tmp_data_source_new = tmp_data[tmp_data[self.timeStampField] >= tmp_target_latest_time_stamp]
-                    tmp_data_source_unexpanded = tmp_data[tmp_data[self.releaseDateField] > target_latest_trade_date]
+                    tmp_data_source_new = tmp_data.loc[tmp_data[self.timeStampField] >= tmp_target_latest_time_stamp]
+                    tmp_data_source_unexpanded = tmp_data.loc[tmp_data[self.releaseDateField] > target_latest_trade_date]
                     tmp_data_source_new = tmp_data_source_new.append(tmp_data_source_unexpanded)
                     tmp_data_source_new = tmp_data_source_new.drop_duplicates([self.codeField, self.yearField, self.seasonField])
 
+                    tmp_data_source_new = tmp_data_source_new.loc[~tmp_data_source_new[self.releaseDateField].isnull()]
+
                     if not tmp_data_source_new.empty: # obsolete data
                         data_new_first_data = tmp_data_source_new[self.releaseDateField].min()  # find the earliest report in new update data
+
                         if type(data_new_first_data).__name__ == 'str':  # else data_new_first_data is nan
                             is_new_data = True
                             deleteObsoleteDataFromDB(code, data_new_first_data, self.dateField, self.codeField,

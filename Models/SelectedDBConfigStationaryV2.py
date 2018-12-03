@@ -1,12 +1,12 @@
 # ================ DB config ============================
-ConfigQuant = {
-    'host':'10.46.228.175',
-    'user':'alg',
-     'password':'Alg#824',
-     'db':'quant',
-     #'port': 3306,
-     'charset':'utf8'
-}
+import os
+import sys
+
+PACKAGE_PARENT = '..'
+SCRIPT_DIR = os.path.dirname(os.path.realpath(os.path.join(os.getcwd(), os.path.expanduser(__file__))))
+sys.path.append(os.path.normpath(os.path.join(SCRIPT_DIR, PACKAGE_PARENT)))
+
+from Utils.DB_config import ConfigQuant
 
 # ================== Process config =======================
 

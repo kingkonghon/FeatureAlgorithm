@@ -12,7 +12,7 @@ import pandas.io.sql as sql
 import numpy as np
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 PACKAGE_PARENT = '..'
 SCRIPT_DIR = os.path.dirname(os.path.realpath(os.path.join(os.getcwd(), os.path.expanduser(__file__))))
@@ -84,7 +84,8 @@ def findNextTrough(chg_pct, chg_threshold, hs300):
 
 def calFull(chg_pct, chg_threshold, start_date, end_date):
     # read data
-    con_quant = create_engine('mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**ConfigQuant))
+    db_quant = create_engine('mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**ConfigQuant))
+    con_quant = db_quant.connect()
 
     sql_statement = "select date,`close` from %s where date between '%s' and '%s'" % (sourceIndexQuoteTableName,
                                                                                       start_date, end_date)
@@ -149,14 +150,17 @@ def calFull(chg_pct, chg_threshold, start_date, end_date):
     #
     # plt.show()
 
-    return hs300[['date', peak_trough_label]]
+    con_quant.close()
+
+    hs300.loc[:, 'ret'] = hs300['close'] / hs300['close'].shift(1)
+    return hs300[['date','ret', peak_trough_label]]
 
 if __name__ == '__main__':
     # 全量
     # chg_pct = 0.2
     # chg_threshold = 0.15
-    chg_pct = 0.09255404225825418
-    chg_threshold = 0.2622337319353774
+    chg_pct = 0.2
+    chg_threshold = 0.05
     tot_start_date = '2007-01-01'
     tot_end_date = '2018-08-31'
     peak_trough = calFull(chg_pct, chg_threshold, tot_start_date, tot_end_date)

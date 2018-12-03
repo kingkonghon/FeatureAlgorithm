@@ -37,6 +37,9 @@ def updateFull(quant_engine, spider_engine):
     full_data = full_data.loc[full_data['list_date'] != '0']
     full_data.loc[:, 'list_date'] = full_data['list_date'].apply(lambda x: '-'.join([x[:4], x[4:6], x[6:]]))
 
+    # drop duplicates
+    full_data = full_data.drop_duplicates('code')
+
     # add time stamp
     full_data[targetNewTimeStamp] = datetime.now()
 

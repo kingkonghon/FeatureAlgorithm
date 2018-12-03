@@ -276,9 +276,9 @@ if __name__ == '__main__':
     # features = StockTechnicalIndicatorMapping(**ConTech)
     # features.run()
 
-    # for i in ConExc:
-    #     features = ExcessReturnMapping(**i)
-    #     features.run()
+    for i in ConExc:
+        features = ExcessReturnMapping(**i)
+        features.run()
     #
     #
     # for i in ConOthers:
@@ -286,8 +286,10 @@ if __name__ == '__main__':
     #     features.run()
     # airflowCallableRankingAllStocks()
 
-    features = StockStationaryTechnicalIndicatorMapping(**ConTechStationary)
-    features.run()
+    # airflowCallableRankingIndustry()
+
+    # features = StockStationaryTechnicalIndicatorMapping(**ConTechStationary)
+    # features.run()
 
     # features = StockStationaryFundamentalIndicatorMapping(**ConFunStationary)
     # features.run()

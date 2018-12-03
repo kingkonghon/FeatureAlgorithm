@@ -12,7 +12,7 @@ sys.path.append("/data2/jianghan/FeatureAlgorithm/Models")
 # sys.path.append(r"D:\FeatureAlgorithm\Tools")
 #sys.path.append("/home/lipchiz/文档/pythonscripts/quant/datafetch")
 # from loadSmallDataFromDB import loadData
-from loadStationaryDataFromDB import loadData
+from loadStationaryDataFromDB import loadData, ConfigQuant
 # from loadDataFromDBVScreenStocks import loadData
 import pandas as pd
 import numpy as np
@@ -38,12 +38,13 @@ def precision_1(preds, dtrain):
     return '1-precision', precision
 
 
-def yload(table_name, starttime, endtime):
-    connection = {'host': '10.46.228.175', 'port': 3306, 'user': 'alg',
-                  'passwd': 'Alg#824', 'db': 'quant', 'charset': 'utf8'}
+def yload(table_name, starttime, endtime, sql_config):
+    # connection = {'host': '10.46.228.175', 'port': 3306, 'user': 'alg',
+    #               'passwd': 'Alg#824', 'db': 'quant', 'charset': 'utf8'}
     sql_order = "select * from %s where date>='%s' and date<='%s'" % (table_name, starttime, endtime)
-    con = pymysql.connect(**connection)
+    con = pymysql.connect(**sql_config)
     y = sql.read_sql(sql_order, con)
+    con.close()
     return y
 
 def objective(args):
@@ -422,7 +423,7 @@ def run(year, season, out_folder_path, out_predict_path):
     gc.collect()
 
     # train_x = loadData(starttime_train,endtime_train)
-    train_y = yload(Y_table_name, starttime_train,endtime_train)
+    train_y = yload(Y_table_name, starttime_train,endtime_train, ConfigQuant)
     train_y.drop('time_stamp',axis=1,inplace=True)
 
     # drop features that are mostly nan
@@ -486,7 +487,7 @@ def run(year, season, out_folder_path, out_predict_path):
     # test_x = loadData(starttime_q1,endtime_q1)
     # test_y = yload(Y_table_name, starttime_q1,endtime_q1)
     test_x = loadData(starttime_test, endtime_test)
-    test_y = yload(Y_table_name, starttime_test, endtime_test)
+    test_y = yload(Y_table_name, starttime_test, endtime_test, ConfigQuant)
     test_y.drop('time_stamp',axis=1,inplace=True)
     test_data = pd.merge(test_x,test_y,on = ['date','code'],how='left')
 

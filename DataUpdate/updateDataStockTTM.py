@@ -13,10 +13,18 @@ sys.path.append(os.path.normpath(os.path.join(SCRIPT_DIR, PACKAGE_PARENT)))
 from Utils.DB_config import ConfigSpider2, ConfigQuant
 from Utils.ProcessFunc import renameDF, chgDFDataType
 
+calendarTableName = 'TRADE_CALENDAR'
+
 # SOURCE
 sourceTableName = 'XueQiuStockTTM'
 sourceFields = ['tradedate', 'stockCode', 'pettm', 'pcttm']
 sourceTimeStamp = 'tradedate'
+
+# SOURCE tushare
+sourceTSTableName = 'STOCK_BASIC_TUSHARE'
+sourceTSFields = ['date', 'code', 'pe_ttm', 'ps_ttm']
+sourceTSTimeStamp = 'date'
+
 
 # TARGET
 targetTableName = 'STOCK_FUNDAMENTAL_TTM'
@@ -88,18 +96,51 @@ def supplementByRawData(quant_engine, target_max_timestamp, data):
 
     return supplement_data
 
+def writeDB(sql_conn, table_name, data):
+    # check if there are already records in the table
+    new_dates = data['date'].unique()
+
+    new_start_date = new_dates.min()
+    new_end_date = new_dates.max()
+
+    sql_statement = "select count(1) as num from `%s` where `date` between '%s' and '%s'" % (table_name, new_start_date, new_end_date)
+    old_record_num = pd.read_sql(sql_statement, sql_conn)
+    old_record_num = old_record_num.iloc[0, 0]
+
+    if old_record_num > 0:
+        print('delete old data from %s to %s' % (new_end_date, new_end_date))
+        sql_statement = "delete from `%s` where `date` between '%s' and '%s'" % (table_name, new_start_date, new_end_date)
+        sql_conn.execute(sql_statement)
+
+    # write new data to db
+    data.to_sql(table_name, sql_conn, index=False, if_exists='append')
 
 
-def updateFull(quant_engine, spider_engine):
-    pass
+def updateTSIncrm(sql_conn_quant, target_max_timestamp, supposed_date_num):
+    tmp_fields = list(map(lambda x: '`%s`' % x, sourceTSFields))
+    tmp_fields = ','.join(tmp_fields)
 
-def updateIncrm(quant_engine, spider_engine):
-    # get target latest date
-    sql_statement = 'select max(`%s`) from `%s`' % (targetTimeStamp, targetTableName)
-    target_max_timestamp = pd.read_sql(sql_statement, quant_engine)
-    target_max_timestamp = target_max_timestamp.iloc[0, 0]
+    sql_statement = "select %s from `%s` where `%s` > '%s'" % (tmp_fields, sourceTSTableName, sourceTSTimeStamp, target_max_timestamp)
+    incrm_data = pd.read_sql(sql_statement, sql_conn_quant)
 
-    target_max_timestamp_format = target_max_timestamp.replace('-', '') # 2015-01-01 --> 20150101
+    incrm_data = incrm_data.drop_duplicates(['date', 'code'])  # drop duplicates
+    incrm_data = incrm_data.sort_values('date')  # sort by date
+
+    incrm_data_date_num = incrm_data['date'].unique().size
+
+    if incrm_data_date_num != supposed_date_num:
+        return False  # signal of missing data from this source
+    else:
+        incrm_data = renameDF(incrm_data, sourceTSFields, targetFields)  # change column names
+
+        incrm_data.loc[:, 'time_stamp'] = datetime.now()  # add time stamp
+
+        writeDB(sql_conn_quant, targetTableName, incrm_data)
+
+        return True  # signal of successfully written data to database
+
+def updateXueQiuIncrm(sql_conn_quant, sql_conn_spider, target_max_timestamp, supposed_date_num):
+    target_max_timestamp_format = target_max_timestamp.replace('-', '')  # 2015-01-01 --> 20150101
 
     # fetch data from source
     tmp_fields = list(map(lambda x: '`%s`' % x, sourceFields))
@@ -107,7 +148,7 @@ def updateIncrm(quant_engine, spider_engine):
     # there maybe some record update later (so use ">="  instead of ">"), fetch data including the latest day in target, drop duplicates later
     sql_statement = "select %s from `%s` where `%s` >= '%s'" % (
         tmp_fields, sourceTableName, sourceTimeStamp, target_max_timestamp_format)
-    incrm_data = pd.read_sql(sql_statement, spider_engine)
+    incrm_data = pd.read_sql(sql_statement, sql_conn_spider)
 
     # rename columns
     incrm_data = renameDF(incrm_data, sourceFields, targetFields)
@@ -124,13 +165,17 @@ def updateIncrm(quant_engine, spider_engine):
     tmp_fields = ','.join(tmp_fields)
     sql_statement = "select %s from `%s` where `%s` >= '%s'" % (
         tmp_fields, targetTableName, targetTimeStamp, target_max_timestamp)
-    existing_data = pd.read_sql(sql_statement, quant_engine)
+    existing_data = pd.read_sql(sql_statement, sql_conn_quant)
 
     # combine existing and increment, and drop duplicates --> remain the real increment and missing data
     incrm_data = existing_data.append(incrm_data)
     incrm_data = incrm_data.drop_duplicates(['date', 'code'], keep=False)
 
-    if not incrm_data.empty:
+    # check if there are missing data from this source
+    incrm_data_date_num = incrm_data['date'].unique().size
+    if incrm_data_date_num < supposed_date_num:
+        return False   # signal of missing data from this source
+    else:
         # change data type
         incrm_data = chgDFDataType(incrm_data, chgDataTypeCol, 'float')
 
@@ -143,8 +188,47 @@ def updateIncrm(quant_engine, spider_engine):
         # add time stamp
         incrm_data[targetNewTimeStamp] = datetime.now()
 
-        # write data tot target
-        incrm_data.to_sql(targetTableName, quant_engine, index=False, if_exists='append')
+        writeDB(sql_conn_quant, targetTableName, incrm_data)
+
+        return True   # signal of successfully written data to database
+
+
+def updateFull(quant_engine, spider_engine):
+    pass
+
+def updateIncrm(quant_engine, spider_engine):
+    sql_conn_quant = quant_engine.connect()
+    sql_conn_spider = spider_engine.connect()
+
+    today = datetime.now()
+    cur_hour = today.hour
+    today = datetime.strftime(today, '%Y-%m-%d')
+
+    # get target latest date
+    sql_statement = 'select max(`%s`) from `%s`' % (targetTimeStamp, targetTableName)
+    target_max_timestamp = pd.read_sql(sql_statement, sql_conn_quant)
+    target_max_timestamp = target_max_timestamp.iloc[0, 0]
+
+    target_max_timestamp_format = target_max_timestamp.replace('-', '') # 2015-01-01 --> 20150101
+
+    # get supposing dates of data
+    sql_statement = "select `date` from `%s`" % calendarTableName
+    trade_calendar = pd.read_sql(sql_statement, sql_conn_quant)
+    trade_calendar = trade_calendar['date'].values
+    supposed_date_num = trade_calendar[(trade_calendar > target_max_timestamp) & (trade_calendar <= today)].size
+
+    if cur_hour < 15:  # before market close, day num - 1
+        supposed_date_num -= 1
+
+    if supposed_date_num > 0:  # need to update data
+        is_successful = updateTSIncrm(sql_conn_quant, target_max_timestamp, supposed_date_num)
+
+        # if not is_successful:  # update from primary source is not successful, try the backup source  (XiuQiu is not accurate)
+        #     updateXueQiuIncrm(sql_conn_quant, sql_conn_spider, target_max_timestamp_format, supposed_date_num)
+
+    sql_conn_quant.close()
+    sql_conn_spider.close()
+
 
 def airflowCallable():
     # create target engine

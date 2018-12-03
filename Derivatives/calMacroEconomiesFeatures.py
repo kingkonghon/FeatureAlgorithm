@@ -1,5 +1,6 @@
 from Mapping.MacroEconomiesMapping import MacroEconomiesMapping
 from Mapping.MacroEconomiesStationaryMapping import MacroEconomiesStationaryMapping
+from Mapping.MacroEconomiesTushareMapping import MacroEconomiesTushareMapping
 import time
 
 CONF = [
@@ -159,7 +160,13 @@ ConUSIndexStationary = [
 
 ConEcoTS ={
     'sourceTableName': 'MACROECONOMIC_TUSHARE',
-    'targetFields': ['m1_mom', 'm2_mom', 'ppi_yoy', 'ppi_mom', ''],
+    'dateField': 'date',
+    'yearField': 'year',
+    'monthField': 'month',
+    'seasonField': 'season',
+    'sourceFields': ['m0', 'm1', 'm2', 'ppi'],
+    'targetTableName': 'DERI_MACROECONOMIC_TUSHARE',
+    'targetFields': ['m0_mom', 'm1_mom', 'm2_mom', 'ppi_yoy', 'ppi_mom'],
 }
 
 
@@ -200,9 +207,13 @@ if __name__ == '__main__':
 
     # airflowCallableShibor()
     # airflowCallableOil()
-    for i in ConUSIndexStationary:
-        features = MacroEconomiesStationaryMapping(**i)
-        features.run()
+
+    # for i in ConUSIndexStationary:
+    #     features = MacroEconomiesStationaryMapping(**i)
+    #     features.run()
+
+    features = MacroEconomiesTushareMapping(**ConEcoTS)
+    features.run()
 
     eclapsed = time.clock() - start_time
     print("Time eclapsed", eclapsed)

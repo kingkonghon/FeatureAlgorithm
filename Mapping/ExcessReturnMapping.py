@@ -118,6 +118,8 @@ class ExcessReturnMapping:
             data_result = data_result[tot_fields]
 
             # add timestamp
+            print(self.targetTableName)
+            print(data_result.shape)
             data_result.loc[:, 'time_stamp'] = datetime.now()
 
             # dump chunk data into sql

@@ -12,7 +12,9 @@ sys.path.append(os.path.normpath(os.path.join(SCRIPT_DIR, PACKAGE_PARENT)))
 from Utils.DB_config import ConfigSpider2, ConfigQuant
 from Utils.ProcessFunc import renameDF, chgDFDataType
 
-# SOURCE
+calendarTableName = 'TRADE_CALENDAR'
+
+# SOURCE SPIDER
 sourceTableName = 'shangzhengjijinzhishu'
 sourceFields = ['report_time', 'open_price', 'top_price', 'low_price', 'close_price', 'VOL',
                 'Transaction_Amount']
@@ -20,12 +22,85 @@ sourceCodeField = 'stock'
 sourceStockCode = ' 000011'  # space before code !!
 sourceTimeStamp = 'report_time'
 
+# SOURCE TUSHARE
+sourceTSTableName = 'STOCK_INDEX_QUOTE_TUSHARE'
+sourceTSFields = ['date', 'open', 'high', 'low', 'close', 'vol',
+                'amount']
+sourceTSCodeField = 'code'
+sourceTSStockCode = '000011'
+sourceTSTimeStamp = 'date'
+
+
 # TARGET
 targetTableName = 'FUND_INDEX'
 targetFields = ['date', 'open', 'high', 'low', 'close', 'volume', 'amount']
 targetTimeStamp = 'date'
 targetNewTimeStamp = 'time_stamp'
 chgDataTypeCol = [ 'open', 'high', 'low', 'close', 'volume', 'amount']
+
+def updateTushare(sql_conn_quant, target_max_timestamp, supposed_date_num):
+    # fetch data from source
+    tmp_fields = list(map(lambda x: '`%s`' % x, sourceTSFields))
+    tmp_fields = ','.join(tmp_fields)
+    sql_statement = "select %s from `%s` where (`%s` > '%s') and (%s = '%s')" % (
+        tmp_fields, sourceTSTableName, sourceTSTimeStamp, target_max_timestamp, sourceTSCodeField, sourceTSStockCode)
+    incrm_data = pd.read_sql(sql_statement, sql_conn_quant)
+
+    # drop duplicates and sort values
+    incrm_data = incrm_data.drop_duplicates(sourceTSTimeStamp)
+    incrm_data = incrm_data.sort_values(sourceTSTimeStamp)
+
+    incrm_data_num = incrm_data[sourceTSTimeStamp].unique().size
+
+    # write data tot target
+    if incrm_data_num == supposed_date_num:
+        # rename columns
+        incrm_data = renameDF(incrm_data, sourceTSFields, targetFields)
+
+        # change data type
+        incrm_data = chgDFDataType(incrm_data, chgDataTypeCol, 'float')
+
+        # add time stamp
+        incrm_data[targetNewTimeStamp] = datetime.now()
+
+        incrm_data.to_sql(targetTableName, sql_conn_quant, index=False, if_exists='append')
+
+        return True
+    else:
+        return False
+
+
+def updateSpider(sql_conn_quant, sql_conn_spider, target_max_timestamp, supposed_date_num):
+    # fetch data from source
+    tmp_fields = list(map(lambda x: '`%s`' % x, sourceFields))
+    tmp_fields = ','.join(tmp_fields)
+    sql_statement = "select %s from `%s` where (`%s` > '%s') and (%s = '%s')" % (
+        tmp_fields, sourceTableName, sourceTimeStamp, target_max_timestamp, sourceCodeField, sourceStockCode)
+    incrm_data = pd.read_sql(sql_statement, sql_conn_spider)
+
+    # drop duplicates and sort values
+    incrm_data = incrm_data.drop_duplicates(sourceTimeStamp)
+    incrm_data = incrm_data.sort_values(sourceTimeStamp)
+
+    incrm_data_num = incrm_data[sourceTimeStamp].unique().size
+
+    # write data to target
+    if incrm_data_num == supposed_date_num:
+        # rename columns
+        incrm_data = renameDF(incrm_data, sourceFields, targetFields)
+
+        # change data type
+        incrm_data = chgDFDataType(incrm_data, chgDataTypeCol, 'float')
+
+        # add time stamp
+        incrm_data[targetNewTimeStamp] = datetime.now()
+
+        incrm_data.to_sql(targetTableName, sql_conn_quant, index=False, if_exists='append')
+
+        return True
+    else:
+        return False
+
 
 def updateFull(quant_engine, spider_engine):
     # fetch data from source
@@ -52,34 +127,37 @@ def updateFull(quant_engine, spider_engine):
         full_data.to_sql(targetTableName, quant_engine, index=False, if_exists='replace')
 
 def updateIncrm(quant_engine, spider_engine):
+    sql_conn_quant = quant_engine.connect()
+    sql_conn_spider = spider_engine.connect()
+
     # get target latest date
     sql_statement = 'select max(`%s`) from `%s`' % (targetTimeStamp, targetTableName)
-    target_max_timestamp = pd.read_sql(sql_statement, quant_engine)
+    target_max_timestamp = pd.read_sql(sql_statement, sql_conn_quant)
     target_max_timestamp = target_max_timestamp.iloc[0, 0]
 
-    # fetch data from source
-    tmp_fields = list(map(lambda x: '`%s`' % x, sourceFields))
-    tmp_fields = ','.join(tmp_fields)
-    sql_statement = "select %s from `%s` where (`%s` > '%s') and (%s = '%s')" % (
-        tmp_fields, sourceTableName, sourceTimeStamp, target_max_timestamp, sourceCodeField, sourceStockCode)
-    incrm_data = pd.read_sql(sql_statement, spider_engine)
+    # get calendar
+    sql_statement = "select `date` from %s" % calendarTableName
+    calendar = pd.read_sql(sql_statement, sql_conn_quant).values.T[0]
 
-    # drop duplicates and sort values
-    incrm_data = incrm_data.drop_duplicates(sourceTimeStamp)
-    incrm_data = incrm_data.sort_values(sourceTimeStamp)
+    today = datetime.now()
+    cur_hour = today.hour
+    today = datetime.strftime(today, '%Y-%m-%d')
 
-    # rename columns
-    incrm_data = renameDF(incrm_data, sourceFields, targetFields)
+    supposed_date_num = calendar[(calendar > target_max_timestamp) & (calendar <= today)].size  # supposing number of dates for new data
+    if cur_hour < 15:  # before market close, day num - 1
+        supposed_date_num -= 1
 
-    # change data type
-    incrm_data = chgDFDataType(incrm_data, chgDataTypeCol, 'float')
 
-    # add time stamp
-    incrm_data[targetNewTimeStamp] = datetime.now()
+    if supposed_date_num > 0:  # need to update data
+        # update from tushare
+        is_successful = updateTushare(sql_conn_quant, target_max_timestamp, supposed_date_num)
 
-    # write data tot target
-    if not incrm_data.empty:
-        incrm_data.to_sql(targetTableName, quant_engine, index=False, if_exists='append')
+        if not is_successful:
+            # update from spider
+            updateSpider(sql_conn_quant, sql_conn_spider, target_max_timestamp, supposed_date_num)
+
+    sql_conn_quant.close()
+    sql_conn_spider.close()
 
 
 def airflowCallable():

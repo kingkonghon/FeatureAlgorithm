@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from hyperopt import fmin, hp, tpe, STATUS_OK, STATUS_FAIL, Trials
+import os
 
 import sklearn_crfsuite
 # from sklearn_crfsuite import scorers
@@ -16,7 +17,7 @@ import scipy.stats
 # from sklearn.model_selection import train_test_split
 
 from calStockIndexPeakTrough import calFull as loadY
-from loadTimingDataFromDB import loadData as loadX
+from loadTimingDataFromDBV2 import loadData as loadX
 
 def Xpoint2Set(data, set_length):
     all_x_points = data.to_dict(orient='records')
@@ -83,14 +84,26 @@ def objective(params):
     labels = ['-1.0', '1.0']
     val_scorer = make_scorer(metrics.flat_precision_score, average='micro', labels=labels)
 
-    rs_cv = RandomizedSearchCV(crf, params_space, cv=3, verbose=0, n_jobs=-1, n_iter=50,
+    rs_cv = RandomizedSearchCV(crf, params_space, cv=3, verbose=0, n_jobs=3, n_iter=50,
                                scoring=val_scorer)  # searching
     rs_cv.fit(chain_X_train, chain_Y_train)
 
-    best_cv_score = rs_cv.best_score_
+    # calculate predict P&L
+    tmp_crf = rs_cv.best_estimator_
+    y_pred = tmp_crf.predict(chain_X_train)
+    single_y_pred = y_pred[0][:-1]
+    single_y_pred.extend([x[-1] for x in y_pred])
+    Y_train.loc[:, 'predict'] = single_y_pred
+    Y_train.loc[:, 'predict'] = Y_train['predict'].astype('float')
+    Y_train.loc[:, 'predict'] = Y_train['predict'].shift(1)  # predict tomorrow
+    tmp_buy = Y_train.loc[Y_train['predict'] == 1]
+    tmp_buy.loc[:, 'cum_ret'] = tmp_buy['ret'].cumprod()
+    final_pnl = tmp_buy['cum_ret'].iloc[-1]
+
+    # best_cv_score = rs_cv.best_score_
     best_sub_params = rs_cv.best_params_
 
-    obj_result = {'loss':-best_cv_score, 'status':STATUS_OK}
+    obj_result = {'loss':-final_pnl, 'status':STATUS_OK}
     obj_result.update(best_sub_params)  # c1 c2
 
     return obj_result
@@ -112,9 +125,9 @@ def model_training(output_path, training_start_date, training_end_date):
     }
 
 
-    chg_pct = scipy.stats.uniform(scale=0.3)
-    chg_threshold = scipy.stats.uniform(scale=0.3)
-    chain_len = scipy.stats.randint(low=2, high =10)
+    # chg_pct = scipy.stats.uniform(scale=0.3)
+    # chg_threshold = scipy.stats.uniform(scale=0.3)
+    # chain_len = scipy.stats.randint(low=2, high =10)
 
     # ==== cross validation
     # best_cv_score = 0
@@ -274,9 +287,10 @@ def train_and_test(training_start_date, training_end_date, testing_start_date, t
 
 if __name__ == '__main__':
     tot_start_date = '2007-01-01'
-    tot_end_date = '2018-08-31'
+    tot_end_date = '2018-09-30'
 
-    folder_path = 'D:/FeatureAlgorithm/Timing/'
+    # folder_path = 'D:/FeatureAlgorithm/Timing/'
+    folder_path = os.getcwd() + '/'
 
     # load testing Y
     # chg_pct = 0.2
@@ -286,8 +300,8 @@ if __name__ == '__main__':
     # tot_test_Y = tot_test_Y.loc[~tot_test_Y['Y'].isnull()]
 
     # loop over seasons
-    training_duration = 3
-    Years = list(range(2013 - training_duration, 2018 + 1 - training_duration))
+    training_duration = 7
+    Years = list(range(2017 - training_duration, 2018 + 1 - training_duration))
     Seasons = list(range(1, 5))
 
     season_start_dates = {
@@ -308,7 +322,7 @@ if __name__ == '__main__':
     total_prediction = pd.DataFrame([])
     for tmp_y in Years:
         for tmp_s in Seasons:
-            if (tmp_y == 2018 - training_duration) and (tmp_s == 3):
+            if (tmp_y == 2018 - training_duration) and (tmp_s == 4):
                 break
 
             print('%d S%d' % (tmp_y + training_duration, tmp_s))

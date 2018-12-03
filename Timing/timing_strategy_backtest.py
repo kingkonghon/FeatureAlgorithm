@@ -11,7 +11,7 @@ sys.path.append(os.path.normpath(os.path.join(SCRIPT_DIR, PACKAGE_PARENT)))
 
 from Utils.DB_config import ConfigQuant
 
-def backTest():
+def backTest(start_date='2007-01-01', end_date='2020-12-31'):
     sourceIndexQuoteTableName = 'HS300_QUOTE'
 
     # read data
@@ -24,7 +24,8 @@ def backTest():
 
     # read prediction
     folder_path = 'D:/FeatureAlgorithm/Timing/'
-    crf_predict = pd.read_csv(folder_path + 'timing_prediction.csv')
+    # crf_predict = pd.read_csv(folder_path + 'timing_prediction.csv')
+    crf_predict = pd.read_csv(folder_path + 'lgbm_timing_prediction.csv')
 
     # get prediction p&l
     strategy = hs300[['date', 'ret']]
@@ -33,9 +34,11 @@ def backTest():
     strategy = strategy.loc[~strategy['predict'].isnull()]  # drop nan
 
     hs300 = hs300.loc[hs300['date'].isin(strategy['date'])]  # trim by date
+    hs300 = hs300.loc[(hs300['date'] >= start_date) & (hs300['date'] <= end_date)]
     hs300.loc[:, 'cum_ret'] = hs300['ret'].cumprod()  # index cum retunrns
 
     strategy.loc[:, 'real_ret'] = strategy.apply(lambda x: x['ret'] if x['predict'] == 1 else 1, axis=1)
+    strategy = strategy.loc[(strategy['date'] >= start_date) & (strategy['date'] <= end_date)]
     strategy.loc[:, 'real_cum_ret'] = strategy['real_ret'].cumprod()
 
     # plot
@@ -51,4 +54,6 @@ def backTest():
 
 
 if __name__ == '__main__':
-    backTest()
+    start_date = '2017-01-01'
+    end_date = '2018-08-31'
+    backTest(start_date, end_date)

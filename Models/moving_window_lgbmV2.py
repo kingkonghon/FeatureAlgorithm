@@ -5,7 +5,7 @@ import os
 
 
 if __name__ == '__main__':
-    Years = list(range(2012, 2018))
+    Years = list(range(2012, 2014))
     Seasons = list(range(1,7))
     result_predict_path = '/data2/jianghan/FeatureAlgorithm/lgbm_model_results/predict'
     if not os.path.exists(result_predict_path):

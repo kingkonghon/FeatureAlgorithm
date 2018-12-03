@@ -25,6 +25,9 @@ def getMoneySupply(ann_dt_label):
     # ========= change datatype
     raw_data = chgDataType(raw_data, ['year', 'month'])
 
+    # ========= change column names
+    raw_data = raw_data.rename({'qm': 'quasi_currency'}, axis=1)
+
     # ========== announcement date
     tmp_data = raw_data.loc[raw_data['month'] != 12]  # announced month is 1 month later
     tmp_data.loc[:, 'announced_month'] = tmp_data['month'] + 1
@@ -53,6 +56,9 @@ def getGDP(ann_dt_label):
 
     # ========= change datatype
     # raw_data = chgDataType(raw_data, ['year', 'season'])
+
+    # ========= change column names
+    raw_data = raw_data.rename({'pi': 'prime_industry', 'si': 'second_industry'}, axis=1)
 
     # ========== announcement date
     season_announcement_dict = {
@@ -150,10 +156,12 @@ def getEconomicDataFull():
 
     tmp_data = getGDP(ann_dt_label)
     tmp_data = expandDataToDaily(tmp_data, trade_calendar, ann_dt_label)
+    tmp_data = tmp_data.drop('year', axis=1)
     economic_data = economic_data.merge(tmp_data, on='date', how='outer')
 
     tmp_data = getPPI(ann_dt_label)
     tmp_data = expandDataToDaily(tmp_data, trade_calendar, ann_dt_label)
+    tmp_data = tmp_data.drop(['year', 'month'], axis=1)
     economic_data = economic_data.merge(tmp_data, on='date', how='outer')
 
     # trim data
