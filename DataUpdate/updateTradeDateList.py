@@ -3,6 +3,7 @@ import tushare as ts
 import os
 import sys
 from datetime import datetime
+import requests
 
 PACKAGE_PARENT = '..'
 SCRIPT_DIR = os.path.dirname(os.path.realpath(os.path.join(os.getcwd(), os.path.expanduser(__file__))))
@@ -57,7 +58,15 @@ def updateFromTushare(target_sql_engine):
     current_year = datetime.now().year
     year_end_date = '%d1231' % current_year
 
-    trade_cal = ts_api.trade_cal(start_date='20070101', end_date=year_end_date)
+    retry_num = 0
+    while retry_num < 10:
+        try:
+            trade_cal = ts_api.trade_cal(start_date='20070101', end_date=year_end_date)
+            break
+        except requests.exceptions.ReadTimeout:
+            retry_num += 1
+    if retry_num >= 10:  #  cannot download tradedate within limited number of times, stop updating
+        return
     trade_cal.columns = ['exchange', 'date', 'is_open']
     trade_cal = trade_cal.loc[trade_cal['is_open'] == 1, 'date']
 

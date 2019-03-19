@@ -38,7 +38,7 @@ adminMailConfig = [
 officalMailConfig = [
     {
         'smtp_server': 'smtp.aliyun.com',
-        'smtp_port': 25,
+        'smtp_port': 465,
         'user': 'quant_atm@aliyun.com',
         'password': 'Abc12345',
 
