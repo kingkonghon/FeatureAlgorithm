@@ -11,7 +11,8 @@ import os
 
 # sys.path.append("/home/nyuser/zlrmodeltest/datafetch")
 # sys.path.append("/home/nyuser/zlrmodeltest/datafetch2")
-sys.path.append("/data2/jianghan/FeatureAlgorithm/Models")
+# sys.path.append("/data2/jianghan/FeatureAlgorithm/Models")
+sys.path.append(r"F:\FeatureAlgorithm\Live")
 # sys.path.append("/home/lipchiz/Documents/pythonscripts/quant/datafetch")
 # sys.path.append("/home/lipchiz/Documents/pythonscripts/quant/datafetch2")
 from loadStationaryDataFromDB import loadData, ConfigQuant
@@ -36,6 +37,8 @@ import pickle
 def getLatestTradeDay(sql_engine, calendar_table_name):
     today = datetime.now()
     today = datetime.strftime(today, '%Y-%m-%d')
+
+    today = '2019-01-09'
 
     sql_statement = "select `date` from %s" % calendar_table_name
     sql_conn = sql_engine.connect()
@@ -184,11 +187,13 @@ def predictNewest(predict_path, backup_path):
 
 if __name__ == '__main__':
     # backup_path = '/data2/jianghan/FeatureAlgorithm/Live/prediction'
-    backup_path = r'D:\FeatureAlgorithm\Live\lgbm_live\prediction'
+    # backup_path = r'D:\FeatureAlgorithm\Live\lgbm_live\prediction'
+    backup_path = r'F:\FeatureAlgorithm\Live\lgbm_live\prediction'
     if not os.path.exists(backup_path):
         os.makedirs(backup_path)
     # predict_path = '/data2/jianghan/FeatureAlgorithm/Live/lgbm_live'
-    predict_path = r'D:\FeatureAlgorithm\Live\lgbm_live'
+    # predict_path = r'D:\FeatureAlgorithm\Live\lgbm_live'
+    predict_path = r'F:\FeatureAlgorithm\Live\lgbm_live'
 
     predictNewest(predict_path, backup_path)
     print('temp prediction completed')

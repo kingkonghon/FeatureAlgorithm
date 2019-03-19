@@ -109,5 +109,5 @@ if __name__ == '__main__':
     spider_engine = create_engine(
         'mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**ConfigSpider2))
 
-    updateFull(quant_engine, spider_engine)
-    # updateIncrm(quant_engine, spider_engine)
+    # updateFull(quant_engine, spider_engine)
+    updateIncrm(quant_engine, spider_engine)

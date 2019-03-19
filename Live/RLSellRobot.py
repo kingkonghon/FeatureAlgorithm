@@ -46,7 +46,8 @@ def choose_action(x):
     action: sell the stocks 1
     """
     # model_file_path = '/data2/jianghan/FeatureAlgorithm/Live/target_net_param_priority_2014_cpu.json'
-    model_file_path = 'target_net_param_priority_2014.json'
+    # model_file_path = '/home/quant/predict_live/target_net_param_priority_2014.json'
+    model_file_path = r'F:\FeatureAlgorithm\Live\target_net_param_priority_2014_cpu.json'
 
     with open(model_file_path, 'rb+') as f:
         target_net_param = pickle.load(f)

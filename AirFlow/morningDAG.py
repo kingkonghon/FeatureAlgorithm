@@ -39,7 +39,7 @@ default_args = {
 
 # ======= dag =======
 # UTC time
-dag = DAG('morning_dag', catchup=False, schedule_interval='40 7 * * *', default_args=default_args)
+dag = DAG('morning_dag', catchup=False, schedule_interval='40 23 * * *', default_args=default_args)
 
 # ========= task ==========
 # update trade calendar

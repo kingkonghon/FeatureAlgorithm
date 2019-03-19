@@ -27,6 +27,8 @@ Days=[5,10,20,30,60,90,120]
 targetTableName = 'STOCK_VALUE'
 weightField = 'amount'
 
+calendarTableName = 'TRADE_CALENDAR'
+
 ##计算value
 def calPV(dataO, weight, day, am_median_name, ret_name):
     # data['weight'] = data[weightField] / data[am_median_name]
@@ -91,7 +93,7 @@ def calIncrmFeatures(subset, start_date):
     if new_data_num > 0:
         tmp_result = tmp_new_data[['date', 'code']]
         for day in Days:
-            tmp_lag_data = tmp_old_data.iloc[-(2*day + 1):] # include data for both median and cum product
+            tmp_lag_data = tmp_old_data.iloc[-(2*day - 1):] # include data for both median and cum product
             tmp_full_data = tmp_lag_data.append(tmp_new_data)
 
             am_median_name = 'am_median_%dD' % day
@@ -160,24 +162,46 @@ def calIncrm():
     # connect db
     quant_engine = create_engine(
         'mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**ConfigQuant))
+    quant_conn = quant_engine.connect()
 
     # find target table date and date to fetch data
     sql_statement = "select max(date) from %s" % targetTableName
-    target_max_date = pd.read_sql(sql_statement, quant_engine)
+    target_max_date = pd.read_sql(sql_statement, quant_conn)
     if not target_max_date.empty:
         target_max_date = target_max_date.iloc[0,0]
 
-    target_fetch_date = datetime.strptime(target_max_date, '%Y-%m-%d') - timedelta(days=365) # lags
-    target_fetch_date = datetime.strftime(target_fetch_date, '%Y-%m-%d')
+    # find source table date and date to fetch data
+    sql_statement = "select max(date) from %s" % sourceTableQuote
+    source_max_date = pd.read_sql(sql_statement, quant_conn)
+    if not source_max_date.empty:
+        source_max_date = source_max_date.iloc[0, 0]
+
+    # check if need to update
+    if target_max_date >= source_max_date:
+        return   # no need
+
+    # get trade dates from calendar
+    sql_statement = "select date from `%s` where date <= '%s'" % (calendarTableName, target_max_date)
+    trade_calendar = pd.read_sql(sql_statement, quant_conn)
+    trade_calendar = trade_calendar['date'].tolist()
+
+    # get fetch date (considering lag data)
+    lag_day_num = 2 * max(Days) - 1
+    target_fetch_date = trade_calendar[-lag_day_num]
+
+    # target_fetch_date = datetime.strptime(target_max_date, '%Y-%m-%d') - timedelta(days=365) # lags
+    # target_fetch_date = datetime.strftime(target_fetch_date, '%Y-%m-%d')
     # fetch data
     sql_statement = "select `code`,date, close, amount from %s where date >= '%s'" % (sourceTableQuote, target_fetch_date)
-    dataO = pd.read_sql(sql_statement, quant_engine)
+    dataO = pd.read_sql(sql_statement, quant_conn)
+
+    quant_conn.close()
 
     # calculate feature stock by stock
     stocks = dataO['code'].unique().tolist()
 
     # multiprocess
-    pool = Pool(processes=4)
+    pool = Pool(processes=2)
 
     dataresult = pd.DataFrame()
     all_processes = []
@@ -197,9 +221,12 @@ def calIncrm():
     if not dataresult.empty:
         dataresult = dataresult.sort_values('date')
         # reconnect to db
-        quant_engine = create_engine(
-            'mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**ConfigQuant))
-        dataresult.to_sql(targetTableName, quant_engine, index=False, if_exists='append')
+        # quant_engine = create_engine(
+        #     'mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**ConfigQuant))
+        quant_conn = quant_engine.connect()
+        dataresult.to_sql(targetTableName, quant_conn, index=False, if_exists='append')
+        print('write %d records into db' % dataresult.shape[0])
+        quant_conn.close()
 
 
 def airflowCallable():

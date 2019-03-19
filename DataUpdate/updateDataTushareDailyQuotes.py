@@ -17,7 +17,8 @@ class TushareQuotes:
         self.ts_api = ts.pro_api(ts_token)
         self.tableCalendarName = 'TRADE_CALENDAR'
         self.tableTushareStockIndexName = 'STOCK_INDEX_QUOTE_TUSHARE'
-        self.tableTushareStockName = 'STOCK_QUOTE_TUSHARE'
+        self.tableTushareStockQuoteName = 'STOCK_QUOTE_TUSHARE'
+        self.tableTushareStockAdjQuoteName = 'STOCK_FOR_ADJ_QUOTE_TUSHARE'
         self.tableTushareStockBasicName = 'STOCK_BASIC_TUSHARE'
         self.sql_engine = create_engine('mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**ConfigQuant))
         self.sql_conn = None
@@ -26,21 +27,44 @@ class TushareQuotes:
         self.stock_index_codes = ['399300.SZ', '399905.SZ', '000011.SH']
         self.stock_basic_dict = {'turnover_rate_f':'turnover_rate_freeflow', 'total_mv':'TOT_MRK_CAP', 'circ_mv':'FREE_MRK_CAP'}
 
-    def getDailyStockQuote(self, ts_api, today):
+    def getDailyStockQuote(self, today):
         # download stock index code from tushare, and update to db
-        latest_record_date = self.getRecordsLatestDate(self.tableTushareStockName, self.sql_conn)
+        latest_record_date_unadj = self.getRecordsLatestDate(self.tableTushareStockQuoteName, self.sql_conn)
+        latest_record_date_adj = self.getRecordsLatestDate(self.tableTushareStockAdjQuoteName, self.sql_conn)
+        if latest_record_date_unadj != latest_record_date_adj:
+            print('latest date not match')
+            if latest_record_date_unadj > latest_record_date_adj:
+                tmp_table_to_prune = self.tableTushareStockQuoteName
+                latest_record_date = latest_record_date_adj
+            else:
+                tmp_table_to_prune = self.tableTushareStockAdjQuoteName
+                latest_record_date = latest_record_date_unadj
+            self.deleteDBData(tmp_table_to_prune, latest_record_date)
+        else:
+            latest_record_date = latest_record_date_adj
 
         missing_dates = self.trade_calendar[(self.trade_calendar > latest_record_date) & (self.trade_calendar <= today)]
 
         stock_quotes = pd.DataFrame([])
+        stock_adj_quotes = pd.DataFrame([])
         for tmp_date in missing_dates:
             tmp_date = tmp_date.replace('-', '')
-            tmp_quotes = ts_api.daily(trade_date=tmp_date)
+            tmp_quotes = self.ts_api.daily(trade_date=tmp_date)
+            tmp_adj_factor = self.ts_api.adj_factor(ts_code='', trade_date=tmp_date) # adjust factor
+            tmp_quotes = tmp_quotes.merge(tmp_adj_factor, on=['ts_code', 'trade_date'], how='inner')
             stock_quotes = stock_quotes.append(tmp_quotes)  # get stock data from tushare date by date
 
-        stock_quotes = self.convertDateAndCode(stock_quotes)
+            tmp_adj_quotes = tmp_quotes.copy()
+            for tmp_col_name in ['open', 'high', 'low', 'close', 'amount']:
+                tmp_adj_quotes.loc[:, tmp_col_name] = tmp_adj_quotes[tmp_col_name] * tmp_adj_quotes['adj_factor']
+            tmp_adj_quotes = tmp_adj_quotes[['ts_code', 'trade_date', 'open', 'high', 'low', 'close', 'vol', 'amount']]
+            stock_adj_quotes = stock_adj_quotes.append(tmp_adj_quotes)
 
-        self.writeDB(stock_quotes, self.tableTushareStockName)
+        stock_quotes = self.convertDateAndCode(stock_quotes)
+        stock_adj_quotes = self.convertDateAndCode(stock_adj_quotes)
+
+        self.writeDB(stock_quotes, self.tableTushareStockQuoteName)
+        self.writeDB(stock_adj_quotes, self.tableTushareStockAdjQuoteName)
 
     def getDailyStockIndexQuote(self, today):
         latest_record_date = self.getRecordsLatestDate(self.tableTushareStockIndexName, self.sql_conn)
@@ -136,6 +160,10 @@ class TushareQuotes:
 
         data.to_sql(table_name, self.sql_conn, index=False, if_exists='append')
 
+    def deleteDBData(self, table_name, start_date):
+        sql_statement = "delete from `%s` where date > '%s'" % (table_name, start_date)
+        self.sql_conn.execute(sql_statement)
+        print('delete data from `%s` where date > %s' % (table_name, start_date))
 
     def run(self):
         self.sql_conn = self.sql_engine.connect()
@@ -152,12 +180,69 @@ class TushareQuotes:
             print("today is not trade date")
         else:  # today is trade, update data
             self.getDailyStockIndexQuote(today)
-            #
-            # self.getDailyStockQuote(today, self.sql_conn)
 
-            self.getDailyStockBasicInfo(today)
+            self.getDailyStockQuote(today)
+
+
 
         self.sql_conn.close()
+
+    def getAllDailyStockQuote(self):
+        self.sql_conn = self.sql_engine.connect()
+
+        today = datetime.now()
+        today = datetime.strftime(today, '%Y-%m-%d')
+
+        sql_statement = "select date from `%s`" % self.tableCalendarName
+        trade_calendar = pd.read_sql(sql_statement, self.sql_conn)
+        trade_calendar = trade_calendar['date']
+        trade_calendar = trade_calendar[trade_calendar <= today]
+
+        trade_calendar = list(map(lambda x: x.replace('-', ''), trade_calendar))
+
+        block_count = 0
+        block_size = 20
+        block_quotes = pd.DataFrame([])
+        block_adj_quotes = pd.DataFrame([])
+        for tmp_date in trade_calendar:
+            # original quotes
+            tmp_quotes = self.ts_api.daily(trade_date=tmp_date)
+            tmp_adj_factor = self.ts_api.adj_factor(ts_code='', trade_date=tmp_date)
+            tmp_quotes = tmp_quotes.merge(tmp_adj_factor, on=['ts_code', 'trade_date'], how='inner')
+            block_quotes = block_quotes.append(tmp_quotes)
+
+            # forward adjusted quotes
+            tmp_adj_quotes = tmp_quotes.copy()
+            for tmp_col in ['open', 'high', 'low', 'close', 'amount']:
+                tmp_adj_quotes.loc[:, tmp_col] = tmp_adj_quotes[tmp_col] * tmp_adj_quotes['adj_factor']
+            tmp_adj_quotes = tmp_adj_quotes.drop(['pre_close', 'change', 'pct_chg', 'adj_factor'], axis=1)
+            block_adj_quotes = block_adj_quotes.append(tmp_adj_quotes)
+
+            block_count += 1
+            if block_count == block_size:  # dump data to db every N round
+                block_quotes = block_quotes.reset_index()
+                block_quotes = block_quotes.drop('index', axis=1)
+                block_quotes = self.convertDateAndCode(block_quotes)
+
+                block_adj_quotes = block_adj_quotes.reset_index()
+                block_adj_quotes = block_adj_quotes.drop('index', axis=1)
+                block_adj_quotes = self.convertDateAndCode(block_adj_quotes)
+                try:
+                    block_quotes.to_sql(self.tableTushareStockQuoteName, self.sql_conn, index=False, if_exists='append')
+                    print('finish dumped %d original quotes into db (%s - %s)' % (block_quotes.shape[0], block_quotes['date'].min(), block_quotes['date'].max()))
+                    block_adj_quotes.to_sql(self.tableTushareStockAdjQuoteName, self.sql_conn, index=False, if_exists='append')
+                    print('finish dumped %d adj quotes into db (%s - %s)' % (block_adj_quotes.shape[0], block_adj_quotes['date'].min(), block_adj_quotes['date'].max()))
+                except Exception as e:
+                    print('lost connection, retry...')
+                    self.sql_conn = self.sql_engine.connect() # in case lost connection
+                    block_quotes.to_sql(self.tableTushareStockQuoteName, self.sql_conn, index=False, if_exists='append')
+                    print('finish dumped %d original quotes into db (%s - %s)' % (block_quotes.shape[0], block_quotes['date'].min(), block_quotes['date'].max()))
+                    block_adj_quotes.to_sql(self.tableTushareStockAdjQuoteName, self.sql_conn, index=False,if_exists='append')
+                    print('finish dumped %d adj quotes into db (%s - %s)' % (block_adj_quotes.shape[0], block_adj_quotes['date'].min(), block_adj_quotes['date'].max()))
+
+                block_count = 0
+                block_quotes = pd.DataFrame([])
+                block_adj_quotes = pd.DataFrame([]) # reset buffer and counter
 
 def airflowCallable():
     tq = TushareQuotes()
@@ -167,3 +252,4 @@ def airflowCallable():
 if __name__ == '__main__':
     tq = TushareQuotes()
     tq.run()
+    # tq.getAllDailyStockQuote()

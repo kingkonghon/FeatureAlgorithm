@@ -13,7 +13,7 @@ PACKAGE_PARENT = '..'
 SCRIPT_DIR = os.path.dirname(os.path.realpath(os.path.join(os.getcwd(), os.path.expanduser(__file__))))
 sys.path.append(os.path.normpath(os.path.join(SCRIPT_DIR, PACKAGE_PARENT)))
 
-from Utils.DB_config import ConfigSpider, ConfigSpider2, ConfigQuant
+from Utils.DB_config import ConfigSpider2, ConfigQuant
 from Utils.ProcessFunc import renameDF, chgDFDataType
 
 # SOURCE
@@ -151,7 +151,9 @@ def updateFull(quant_engine, spider_engine, chunk_size, start_date='2007-01-01')
 def updateIncrm(quant_engine, spider_engine):
     # get lastest tradedate
     sql_statement = "select max(`%s`) from %s where `%s` != 'null'" % (targetTimeStamp, targetTableName, targetTimeStamp)
-    latest_date = pd.read_sql(sql_statement, quant_engine).iloc[0,0]
+    quant_conn = quant_engine.connect()
+    latest_date = pd.read_sql(sql_statement, quant_conn).iloc[0,0]
+    quant_conn.close()
 
     # get incremental data
     tmp_fields = list(map(lambda x: '`%s`' % x, sourceFields))
@@ -160,17 +162,19 @@ def updateIncrm(quant_engine, spider_engine):
     tmp_sup_fields = ','.join(tmp_sup_fields)
     sql_statement = "select %s from %s where (%s > '%s') and (%s != 'null')" % (tmp_fields, sourceTableName, sourceTimeStamp,
                                                                                 latest_date, sourceTimeStamp)
-    incrm_data = pd.read_sql(sql_statement, spider_engine)
+    spider_conn = spider_engine.connect()
+    incrm_data = pd.read_sql(sql_statement, spider_conn)
 
     #  ========== supplement ==============
     sql_statement = "select %s from %s where (`%s` > '%s') and (`%s` != 'null')" % (tmp_sup_fields, sourceSupplementTableName, sourceTimeStamp,
             latest_date, sourceTimeStamp)
-    incrm_sup_data = pd.read_sql(sql_statement, spider_engine)
+    incrm_sup_data = pd.read_sql(sql_statement, spider_conn)
+    spider_conn.close()
     # process raw data
     incrm_sup_data = incrm_sup_data.drop_duplicates([sourceCode, sourceTimeStamp])
     incrm_sup_data.loc[:, sourceTurnoverField] = incrm_sup_data[sourceTurnoverField].apply(lambda x: x if x != '-' else 0)
     # merge main data set with supplement data set
-    incrm_data = incrm_data.merge(incrm_sup_data, how='left', on=[sourceTimeStamp, sourceCode], suffixes=['', '_sup'])
+    incrm_data = incrm_data.merge(incrm_sup_data, how='inner', on=[sourceTimeStamp, sourceCode], suffixes=['', '_sup'])
     incrm_data.loc[:, sourceTurnoverField] = incrm_data[sourceTurnoverField].fillna(0)
     # change column name set
     sourceFields.append(sourceTurnoverField + '_sup')
@@ -199,8 +203,9 @@ def updateIncrm(quant_engine, spider_engine):
 
     # write data to db
     if not incrm_data.empty:
-        incrm_data.to_sql(targetTableName, quant_engine, index=False, if_exists='append')
-    pass
+        quant_conn = quant_engine.connect()
+        incrm_data.to_sql(targetTableName, quant_conn, index=False, if_exists='append')
+        quant_conn.close()
 
 def airflowCallable():
     # create target engine

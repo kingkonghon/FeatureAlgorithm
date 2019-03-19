@@ -127,14 +127,15 @@ def airflowCallable():
 
 
 if __name__ == '__main__':
-    start_date = '2007-01-01'
-
-    is_full, last_record_date, start_fetch_date = checkIfIncre(ConfigQuant, ConQuote['tableName'],
-                                                               targetTableName, ConQuote['date'], [0], '', False)
-
-    if is_full == 1:
-        calFullArea(ConfigQuant, ConArea, ConQuote, ConWeight, 10, start_date)
-    elif is_full == 0:
-        calIncrmArea(ConfigQuant, ConArea, ConQuote, ConWeight, 10, start_date)
-    else:
-        pass
+    # start_date = '2007-01-01'
+    #
+    # is_full, last_record_date, start_fetch_date = checkIfIncre(ConfigQuant, ConQuote['tableName'],
+    #                                                            targetTableName, ConQuote['date'], [0], '', False)
+    #
+    # if is_full == 1:
+    #     calFullArea(ConfigQuant, ConArea, ConQuote, ConWeight, 10, start_date)
+    # elif is_full == 0:
+    #     calIncrmArea(ConfigQuant, ConArea, ConQuote, ConWeight, 10, start_date)
+    # else:
+    #     pass
+    airflowCallable()

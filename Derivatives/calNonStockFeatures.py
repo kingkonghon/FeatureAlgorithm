@@ -78,7 +78,7 @@ if __name__ == '__main__':
     #
     # eclapsed = time.clock() - start_time
     # print("Time eclapsed", eclapsed)
-    # airflowCallableFundIndex()
+    airflowCallableFundIndex()
     # airflowCallablePreciousMetal()
-    features = NonStockStationaryFeaturesMapping(**ConStationary[0])
-    features.run()
+    # features = NonStockStationaryFeaturesMapping(**ConStationary[0])
+    # features.run()

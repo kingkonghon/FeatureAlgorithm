@@ -2,6 +2,7 @@ from sqlalchemy import create_engine
 import tushare as ts
 import os
 import sys
+from datetime import datetime
 
 PACKAGE_PARENT = '..'
 SCRIPT_DIR = os.path.dirname(os.path.realpath(os.path.join(os.getcwd(), os.path.expanduser(__file__))))
@@ -49,11 +50,22 @@ targetDateField = 'date'
 
 # ================== update from tushare
 def updateFromTushare(target_sql_engine):
-    trade_cal = ts.trade_cal()
-    trade_cal.columns = ['date', 'isOpen']
-    trade_cal = trade_cal.loc[trade_cal['isOpen'] == 1, 'date']
+    ts_token = 'e37ce8e806bbfc9bfcb9ac35e68998c1710e7f0714e8fb5f257cd13c'
+    ts_api = ts.pro_api(ts_token)
 
-    trade_cal.to_sql(targetTableName, target_sql_engine, index=False, if_exists='replace')
+    # get current year
+    current_year = datetime.now().year
+    year_end_date = '%d1231' % current_year
+
+    trade_cal = ts_api.trade_cal(start_date='20070101', end_date=year_end_date)
+    trade_cal.columns = ['exchange', 'date', 'is_open']
+    trade_cal = trade_cal.loc[trade_cal['is_open'] == 1, 'date']
+
+    trade_cal = trade_cal.apply(lambda x: '-'.join([x[:4], x[4:6], x[6:]]))
+
+    tmp_conn = target_sql_engine.connect()
+    trade_cal.to_sql(targetTableName, tmp_conn, index=False, if_exists='replace')
+    tmp_conn.close()
 
 
 if __name__ == '__main__':

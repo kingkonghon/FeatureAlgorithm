@@ -1241,6 +1241,9 @@ allMergeDataConf2 = [
     },
 ]
 
+
+
+
 areaConf = {
     'table_name': 'STOCK_DESCRIPTION',
     'fields': ['code', 'area'],

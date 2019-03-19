@@ -126,16 +126,18 @@ def airflowCallable():
     calIncrmIndustry(ConfigQuant, ConfigIndustry, ConQuote, ConWeights, chunk_size, start_date)
 
 if __name__ == '__main__':
-    start_date = '2007-01-01'
-    chunk_size = 10
+    # start_date = '2007-01-01'
+    # chunk_size = 10
+    #
+    # is_full, last_record_date, start_fetch_date = checkIfIncre(ConfigQuant, ConQuote['tableName'],
+    #                                                            targetTableName, ConQuote['date'], [0], '', False)
+    #
+    # # *********** sw index quote is avaliable, try to use them directly instead of sum by weights
+    # if is_full == 1:
+    #     calFullIndustry(ConfigQuant, ConfigIndustry, ConQuote, ConWeights, chunk_size, start_date)
+    # elif is_full == 0:
+    #     calIncrmIndustry(ConfigQuant, ConfigIndustry, ConQuote, ConWeights, chunk_size, start_date)
+    # else:
+    #     pass
 
-    is_full, last_record_date, start_fetch_date = checkIfIncre(ConfigQuant, ConQuote['tableName'],
-                                                               targetTableName, ConQuote['date'], [0], '', False)
-
-    # *********** sw index quote is avaliable, try to use them directly instead of sum by weights
-    if is_full == 1:
-        calFullIndustry(ConfigQuant, ConfigIndustry, ConQuote, ConWeights, chunk_size, start_date)
-    elif is_full == 0:
-        calIncrmIndustry(ConfigQuant, ConfigIndustry, ConQuote, ConWeights, chunk_size, start_date)
-    else:
-        pass
+    airflowCallable()

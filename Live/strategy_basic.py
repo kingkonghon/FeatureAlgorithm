@@ -15,13 +15,13 @@ from time import sleep
 
 adminMailConfig = [
     {
-        'smtp_server': 'smtp.mxhichina.com',
-        'smtp_port': 25,
-        'user': 'jianghan@nuoyuan.com.cn',
-        'password': 'll@900515',
+        'smtp_server': 'smtp.163.com',
+        'smtp_port': 465,
+        'user': '13602819622@163.com',
+        'password': 'll900515',
 
-        'sender': 'jianghan@nuoyuan.com.cn',
-        'receiver': 'jianghan@nuoyuan.com.cn',
+        'sender': '13602819622@163.com',
+        'receiver': '13602819622@163.com',
     },
 
     # {
@@ -37,18 +37,20 @@ adminMailConfig = [
 
 officalMailConfig = [
     {
-        'smtp_server': 'smtp.mxhichina.com',
+        'smtp_server': 'smtp.aliyun.com',
         'smtp_port': 25,
-        'user': 'jianghan@nuoyuan.com.cn',
-        'password': 'll@900515',
+        'user': 'quant_atm@aliyun.com',
+        'password': 'Abc12345',
 
-        'sender': 'jianghan@nuoyuan.com.cn',
+        'sender': 'quant_atm@aliyun.com',
         'receiver': 'quant_atm@aliyun.com',
     },
 ]
 
-stockPool1000Path = '/data2/jianghan/FeatureAlgorithm/Live/stock_pool.csv'
-# stockPool1000Path = r'D:\model_results\top_bottom\stock_pool.csv'
+# stockPool1000Path = '/home/quant/predict_live/stock_pool.csv'
+stockPool1000Path = r'F:\FeatureAlgorithm\Live\stock_pool.csv'
+
+isBackTest = False
 
 
 def getTradeCalendar(sql_engine):
@@ -194,8 +196,20 @@ def getTushareSuspensionFlag(token, today):
 
     suspension_flag.loc[:, 'code'] = suspension_flag['ts_code'].apply(lambda x: x[:-3])  # change the format of the code
 
-    suspension_flag = suspension_flag['ts_code'].unique()
+    suspension_flag = suspension_flag['code'].unique()
     return suspension_flag
+
+def getTushareStockHistoricalQuote(token, date, code_list):
+    ts_api = ts.pro_api(token)
+    today_ts = date.replace('-', '')
+    stock_quote = ts_api.daily(trade_date=today_ts)
+
+    stock_quote.loc[:, 'code'] = stock_quote['ts_code'].apply(lambda x: x[:-3])  # change the format of the code
+    stock_quote.loc[:, 'date'] = stock_quote['trade_date'].apply(lambda x: '-'.join([x[:4], x[4:6], x[6:]]))  # change the format of the date
+
+    stock_quote = stock_quote.loc[stock_quote['code'].isin(code_list), ['code', 'open']]  # only need the open price
+    return stock_quote
+
 
 def getTushareStockQuote(code_list):
     # real_time_quote = ts.get_today_all()
@@ -282,16 +296,66 @@ def getCurrentAvaliableFunds(sql_engine, trade_reocrd_table_name, id_col_name, i
 
     return available_fund, last_record_id
 
+def loadLatestDailyReturn(sql_conn, performance_table_name, index_table_name):
+    ret_col = 'daily_return'
+    date_col = 'date'
+    index_code = '399300'
+
+    # check if table exists
+    sql_statement = "SELECT count(1) FROM information_schema.tables WHERE table_schema = 'quant' AND table_name = '%s'" % performance_table_name
+    tmp_if_table_exist = pd.read_sql(sql_statement, sql_conn)
+    tmp_if_table_exist = tmp_if_table_exist.iloc[0, 0]
+
+    if tmp_if_table_exist == 0:  # table does not exist
+        latest_trade_date = 'null'
+        latest_ret = 0
+    elif tmp_if_table_exist == 1:
+        latest_statistics = {}
+
+        # stratgy returns
+        # sql_statement = "select `%s`, `%s` from `%s` where `%s` = (select max(`%s`) from %s)" % (
+        #     date_col, ret_col, performance_table_name, date_col, date_col, performance_table_name)
+        sql_statement = "select `%s`, `%s` from `%s`" % (date_col, ret_col, performance_table_name)
+        all_performance = pd.read_sql(sql_statement, sql_conn)
+
+        latest_trade_date = all_performance[date_col].max()
+        first_trade_date = all_performance[date_col].min()
+        latest_ret = all_performance.loc[all_performance[date_col] == latest_trade_date, 'daily_return'].iloc[0]
+
+        tot_ret = (1 + all_performance[ret_col]).prod() - 1  # cumulative return
+
+        # hs300 return
+        sql_statement = "select `date`, `open`, `close` from `%s` where `code` = '%s' and date between '%s' and '%s'" % (index_table_name, index_code, first_trade_date, latest_trade_date)
+        index_quotes = pd.read_sql(sql_statement, sql_conn)
+        index_quotes = index_quotes.sort_values('date')
+        index_tot_ret = index_quotes.loc[index_quotes['date'] == latest_trade_date, 'close'].iloc[0] / index_quotes.loc[index_quotes['date'] == first_trade_date, 'open'].iloc[0] - 1
+        index_latest_ret = index_quotes.loc[index_quotes['date'] == latest_trade_date, 'close'].iloc[0] / index_quotes['close'].iloc[-2] - 1
+
+        # alpha return
+        tot_alpha_return = tot_ret - index_tot_ret
+        latest_alpha_return = latest_ret - index_latest_ret
+
+        # latest_trade_date = all_performance[date_col].iloc[0]
+        # latest_ret = latest_performance[ret_col].iloc[0]
+
+        latest_statistics['date'] = latest_trade_date
+        latest_statistics['daily_ret'] = latest_ret
+        latest_statistics['tot_ret'] = tot_ret
+        latest_statistics['daily_alpha_ret'] = latest_alpha_return
+        latest_statistics['tot_alpha_ret'] = tot_alpha_return
+
+    return latest_statistics
+
 
 def strategyBasicPreTrade():
     print(datetime.now())
 
     # setting
     sql_engine = create_engine('mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**ConfigQuant))
-    sql_engine_spider = create_engine('mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**ConfigSpider2))
-    config_stock_app = ConfigQuant.copy()
-    config_stock_app['db'] = StockAppSchema
-    sql_engine_stock_app = create_engine('mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**config_stock_app))  # different schema
+    # sql_engine_spider = create_engine('mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**ConfigSpider2))
+    # config_stock_app = ConfigQuant.copy()
+    # config_stock_app['db'] = StockAppSchema
+    # sql_engine_stock_app = create_engine('mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**config_stock_app))  # different schema
     predictionTableName = 'LGBM_LIVE_PREDICTION_FINAL'   #  historical prediction records using complete features
     backupPredictionTableName = 'LGBM_LIVE_PREDICTION_TEMP'   # historical prediction records using temporary features
     strategyPositionTableName = 'NAIVE_LGBM_STRATEGY_POS'
@@ -308,6 +372,15 @@ def strategyBasicPreTrade():
     checkDayNum = [2, 5, 10]
     closeProbabilityThreshold = 0.5
     RLMatrixLen = 10   # the length of lag of predicting probabilities
+
+    # load latest trade day
+    trade_calendar = getTradeCalendar(sql_engine)
+    today, yesterday = getLatestTradeDay(trade_calendar)
+    if today == 'non_trade_day':  # today is not trade day
+        print('today is not trade day')
+        return
+
+    # fill header of email
     mailContent = {
         'from': 'Naive LGBM strategy',
         'to': 'Subscriber',
@@ -317,15 +390,8 @@ def strategyBasicPreTrade():
     mailPreTradeContent = {
         'from': 'Naive LGBM strategy',
         'to': 'Subscriber',
-        'subject': 'Stock Pre-Trade List %s' % datetime.strftime(datetime.now(), '%Y-%m-%d'),
+        'subject': 'Stock Pre-Trade List %s' % today,
     }
-
-    # load latest trade day
-    trade_calendar = getTradeCalendar(sql_engine)
-    today, yesterday = getLatestTradeDay(trade_calendar)
-    if today == 'non_trade_day':  # today is not trade day
-        print('today is not trade day')
-        return
 
     mailContent['content'] = "Today's recommendation stock codes (%s)" % today  # set email content
     mailPreTradeContent['content'] = "Today's proposed trade list:"
@@ -379,8 +445,8 @@ def strategyBasicPreTrade():
 
     # ===== drop stock in pre-sell list, if it's also in pre-buy list
     tmp_code_list = pre_buy_list['code'].tolist()
-    pre_sell_list = [x for x in pre_sell_list if x not in tmp_code_list]
     contradict_list = [x for x in pre_sell_list if x in tmp_code_list]
+    pre_sell_list = [x for x in pre_sell_list if x not in tmp_code_list]
     if len(contradict_list) > 0:
         print('buy sell contradiction:', contradict_list)
 
@@ -400,7 +466,7 @@ def strategyBasicPreTrade():
     mailPreTradeContent['content'] += '\nproposed buy list:\n' + '\n'.join(tmp_content)  # pre-buy list
 
     tmp_code_list = pre_sell_list.copy()
-    mailPreTradeContent['content'] += '\n\nproposed sell list:' + '\n'.join(tmp_code_list)  # pre-buy list
+    mailPreTradeContent['content'] += '\n\nproposed sell list:\n' + '\n'.join(tmp_code_list)  # pre-buy list
 
     for tmp_config in adminMailConfig:
         sendEmail(mailPreTradeContent, tmp_config)  # send email to different subscribers
@@ -415,7 +481,7 @@ def strategyBasicPreTrade():
     pre_buy_list.to_sql(strategyTmpBuyListTableName, tmp_conn, index=False, if_exists='replace')
 
     # pre sell list
-    sql_statement = 'truncate table `%s`' % strategyTmpSellListTableName  # clear up previous records
+    sql_statement = 'truncate table `%s`' % strategyTmpSellListTableName  # clear up previous records (in case pre-sell list empty)
     tmp_conn.execute(sql_statement)
 
     if not len(pre_sell_list) == 0:
@@ -425,8 +491,8 @@ def strategyBasicPreTrade():
     tmp_conn.close()
 
     # recommendation list (historical records of pre buy list, for stock app)
-    tmp_conn = sql_engine_spider.connect()  # read stock company name from spider schema
-    sql_statement = "select `code`, `name` from stock_list"
+    tmp_conn = sql_engine.connect()  # read stock company name from spider schema
+    sql_statement = "select `code`, `name` from STOCK_DESCRIPTION"
     stock_name = pd.read_sql(sql_statement, tmp_conn)
     tmp_conn.close()
 
@@ -435,7 +501,7 @@ def strategyBasicPreTrade():
     pre_buy_list.loc[:, 'date'] = today
     recommendation_list = pre_buy_list[tmp_cols]  # rearrange column order
     recommendation_list = recommendation_list.merge(stock_name, on='code', how='left')
-    writeDB(sql_engine_stock_app, config_stock_app['db'], strategyRecommendationTableName, recommendation_list, True)
+    # writeDB(sql_engine_stock_app, config_stock_app['db'], strategyRecommendationTableName, recommendation_list, True)
 
     # recommendation list (backup in quant)
     writeDB(sql_engine, ConfigQuant['db'], strategyRecommendationTableName, recommendation_list, True)
@@ -445,14 +511,17 @@ def strategyBasicActualTrade():
 
     # setting
     sql_engine = create_engine('mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**ConfigQuant))
-    config_stock_app = ConfigQuant.copy()
-    config_stock_app['db'] = StockAppSchema
-    sql_engine_stock_app = create_engine('mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**config_stock_app))  # different schema
+    # config_stock_app = ConfigQuant.copy()
+    # config_stock_app['db'] = StockAppSchema
+    # sql_engine_stock_app = create_engine('mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**config_stock_app))  # different schema
     strategyPositionTableName = 'NAIVE_LGBM_STRATEGY_POS'   # table recording current positions
+    strategyPositionBackupTableName = 'NAIVE_LGBM_STRATEGY_POS_BACKUP'  # table recording historical current positions
     strategyTmpSellListTableName = 'NAIVE_LGBM_STRATEGY_TMP_SELL_LIST'  # table recording list of suggested buy list
     strategyTmpBuyListTableName = 'NAIVE_LGBM_STRATEGY_TMP_BUY_LIST'   # table recording list of suggested sell list
     strategyTradeRecordTableName = 'NAIVE_LGBM_STRATEGY_HIS_RECORDS'  # table recording historical trading records
     strategyActionTableName = 'NAIVE_LGBM_STRATEGY_ACTION_RECORDS'
+    strategyPerformanceTableName = 'NAIVE_LGBM_STRATEGY_PERFORMANCE'
+    indexQuoteTableName = 'STOCK_INDEX_QUOTE_TUSHARE'
     tushareToken = 'e37ce8e806bbfc9bfcb9ac35e68998c1710e7f0714e8fb5f257cd13c'
     maxPosNum = 5
     probaLabelBuy = 'Y_2D'
@@ -466,12 +535,6 @@ def strategyBasicActualTrade():
     buy_commission_rate = 0.001
     sell_commission_rate = 0.002
     strategyInitialFund = 1000000
-    mailContent = {
-        'from': 'Naive LGBM strategy',
-        'to': 'Subscriber',
-        'subject': 'Strategy Transactions %s' % datetime.strftime(datetime.now(), '%Y-%m-%d'),
-        'content':''
-    }
 
     # ==== check if today is trade day
     trade_calendar = getTradeCalendar(sql_engine)
@@ -479,6 +542,13 @@ def strategyBasicActualTrade():
     if today == 'non_trade_day':
         print('today is not trade day')
         return
+
+    mailContent = {
+        'from': 'Naive LGBM strategy',
+        'to': 'Subscriber',
+        'subject': 'Strategy Transactions %s' % today,
+        'content':''
+    }
 
     # ==== load pre buy/sell orders from db
     # sql_statement = "select * from `%s`" % strategyPositionTableName
@@ -510,17 +580,23 @@ def strategyBasicActualTrade():
     else:
         real_sell_list = pd.DataFrame([])
 
-
     if not real_sell_list.empty:
         # closing position screened for suspension (still needs to check if open price reaching fall stop limit)
         close_position = current_position.loc[current_position['code'].isin(real_sell_list['code'].values)]
 
         # get all stock quotes
-        stock_quote = getTushareStockQuote(close_position['code'].tolist())
+        if not isBackTest:
+            stock_quote = getTushareStockQuote(close_position['code'].tolist())
+        else:
+            stock_quote = getTushareStockHistoricalQuote(tushareToken, today, close_position['code'].tolist())
+
         miss_code = close_position.loc[~close_position['code'].isin(stock_quote['code'])]
         while not miss_code.empty:  # tushare download quotes not including the stocks to be closed, retry
             time.sleep(10)
-            tmp_quote = getTushareStockQuote(miss_code['code'].tolist())
+            if not isBackTest:
+                tmp_quote = getTushareStockQuote(miss_code['code'].tolist())
+            else:
+                tmp_quote = getTushareStockHistoricalQuote(tushareToken, today, close_position['code'].tolist())
             stock_quote = stock_quote.append(tmp_quote)  # add new downloaded quotes into the existing ones
             stock_quote = stock_quote.drop_duplicates('code', keep='first')
 
@@ -609,7 +685,10 @@ def strategyBasicActualTrade():
             miss_code = real_buy_list.copy()
         while not miss_code.empty:  # tushare download quotes not including the stocks to be opened, retry
             try:
-                tmp_quote = getTushareStockQuote(miss_code['code'].tolist())
+                if not isBackTest:
+                    tmp_quote = getTushareStockQuote(miss_code['code'].tolist())
+                else:
+                    tmp_quote = getTushareStockHistoricalQuote(tushareToken, today, miss_code['code'].tolist())
             except HTTPError:
                 print('spider blocked by website, try again in 10 mins')
                 time.sleep(300)  # try again in 5 mins
@@ -677,26 +756,51 @@ def strategyBasicActualTrade():
             tmp_buy_details = real_buy_list.apply(lambda x: '%s @ %.2f' % (x.code, x.open_price), axis=1).tolist()
             tmp_buy_details = '\n'.join(tmp_buy_details)
             mailContent['content'] += tmp_buy_details
+            mailContent['content'] += '\n\n'
+
+            # before cover current position table, write old position to backup table
+            current_position.loc[:, 'date'] = today
+            tmp_conn = sql_engine.connect()
+            current_position.to_sql(strategyPositionBackupTableName, tmp_conn, index=False, if_exists='append') # backup old records to the position backup table
 
             # write new positions to current position table (schema: quant)
             new_position = new_position.append(real_buy_list)
-            tmp_conn = sql_engine.connect()
+            # tmp_conn = sql_engine.connect()
             new_position.to_sql(strategyPositionTableName, tmp_conn, index=False, if_exists='replace') # rewrite new records to the position table
             tmp_conn.close()
 
-            # write new positions to current position table (schema: stockshow)
-            tmp_conn = sql_engine_stock_app.connect()
-            sql_statement = "truncate table `%s`" % strategyPositionTableName  # delete data but remain the table structure unchanged
-            tmp_result = tmp_conn.execute(sql_statement)
-            print("truncate all data in %s (schema: stockshow)" % strategyPositionTableName)
+            # # write new positions to current position table (schema: stockshow)
+            # tmp_conn = sql_engine_stock_app.connect()
+            # sql_statement = "truncate table `%s`" % strategyPositionTableName  # delete data but remain the table structure unchanged
+            # tmp_result = tmp_conn.execute(sql_statement)
+            # print("truncate all data in %s (schema: stockshow)" % strategyPositionTableName)
+            #
+            # new_position = new_position[cur_pos_table_cols]  # rearrange data
+            # new_position.loc[:, 'id'] = list(range(1, new_position.shape[0] + 1))  # primary key with auto increment starts with 1
+            # new_position.to_sql(strategyPositionTableName, tmp_conn, index=False, if_exists='append')
+            # print("write new data to %s (schema: stockshow)" % strategyPositionTableName)
+            # tmp_conn.close()
 
-            new_position = new_position[cur_pos_table_cols]  # rearrange data
-            new_position.loc[:, 'id'] = list(range(1, new_position.shape[0] + 1))  # primary key with auto increment starts with 1
-            new_position.to_sql(strategyPositionTableName, tmp_conn, index=False, if_exists='append')
-            print("write new data to %s (schema: stockshow)" % strategyPositionTableName)
-            tmp_conn.close()
+    # === add more information to emails
+    # if no trade today
+    if mailContent['content'] == '':
+        mailContent['content'] = 'No trade today. Keep current positions.\n\n\n'
 
+    # add current position to email content
+    mailContent['content'] += 'current positions:\n'
+    tmp_pos_details = '\n'.join(new_position['code'].tolist())
+    mailContent['content'] += tmp_pos_details
+    mailContent['content'] += '\n\n'
 
+    # add yesterday's p&l
+    tmp_conn = sql_engine.connect()
+    tmp_latest_statistics = loadLatestDailyReturn(tmp_conn, strategyPerformanceTableName, indexQuoteTableName)
+    tmp_conn.close()
+    mailContent['content'] += 'latest trade day(%s): \ntotal return: %.2f%%\ndaily return: %.2f%%\ntotal alpha return (HS300): %.2f%%\ndaily alpha return (HS300): %.2f%%\n\n' % (
+        tmp_latest_statistics['date'], tmp_latest_statistics['tot_ret'] * 100, tmp_latest_statistics['daily_ret'] * 100, tmp_latest_statistics['tot_alpha_ret'] * 100, tmp_latest_statistics['daily_alpha_ret'] * 100
+    )
+
+    # === send emails
     for tmp_config in adminMailConfig:
         sendEmail(mailContent, tmp_config)  # send email to different subscribers
 
@@ -705,7 +809,7 @@ def strategyBasicActualTrade():
 
     # ==== record strategy trade actions (schema: stockshow)
     if not strategy_action.empty:
-        tmp_conn = sql_engine_stock_app.connect()
+        tmp_conn = sql_engine.connect()
         strategy_action.to_sql(strategyActionTableName, tmp_conn, index=False, if_exists='append')
         tmp_conn.close()
 
@@ -832,15 +936,15 @@ def evaluateStrategyPerformance():
     writeDB(sql_engine, ConfigQuant['db'], strategyPerformanceTableName, new_performance, add_primary_key=True)
 
     # write new record to db (stock app)
-    writeDB(sql_engine_stock_app, config_stock_app['db'], strategyPerformanceTableName, new_performance, add_primary_key=True)
+    # writeDB(sql_engine_stock_app, config_stock_app['db'], strategyPerformanceTableName, new_performance, add_primary_key=True)
 
 def historicalPredictionPerformance():
     # setting
     sql_engine = create_engine('mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**ConfigQuant))
-    config_stock_app = ConfigQuant.copy()
-    config_stock_app['db'] = StockAppSchema
-    sql_engine_stock_app = create_engine('mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(
-        **config_stock_app))  # different schema
+    # config_stock_app = ConfigQuant.copy()
+    # config_stock_app['db'] = StockAppSchema
+    # sql_engine_stock_app = create_engine('mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(
+    #     **config_stock_app))  # different schema
     hisRecomRecordTableName = 'NAIVE_LGBM_RECOMMENDATION_HIS_RECORDS'  # table recording historical trading records
     hisRecomEvalTableName = 'NAIVE_LGBM_HIS_RECOMM_EVAL'
 
@@ -909,6 +1013,8 @@ def historicalPredictionPerformance():
     # get absolute returns and relative returns of past recommended stocks
     his_recomm_performance = his_recommendation.merge(stock_quotes[['date', 'code', 'rets', 'alpha_hs300', 'alpha_csi500']], on=['date', 'code'], how='left')
 
+    his_recomm_performance = his_recomm_performance.rename({probaLabelBuy: 'probability_buy'}, axis=1)
+
     # # rank returns day by day, and divide into n levels based on daily ranking of returns
     # stock_quotes.loc[:, 'rank'] = stock_quotes.groupby('date')['rets'].rank(method='average', ascending=False)
     # tmp_quantiles = list(map(lambda x: x*0.1, range(totalLevelNum)))
@@ -925,7 +1031,7 @@ def historicalPredictionPerformance():
     # his_recommendation = his_recommendation.merge(stock_quotes, on='code', how='inner')
 
     # write db
-    tmp_conn = sql_engine_stock_app.connect()
+    tmp_conn = sql_engine.connect()
     his_recomm_performance.to_sql(hisRecomEvalTableName, tmp_conn, index=False, if_exists='replace')
     tmp_conn.close()
 
@@ -951,14 +1057,68 @@ def sendEmail(mail_content, mail_config):
         except smtplib.SMTPException:
             print('send email to %s error' % mail_config['receiver'])
 
+def restoreCurrentPosition(restore_date):
+    sql_engine = create_engine('mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**ConfigQuant))
+    backupPosTableName = 'NAIVE_LGBM_STRATEGY_POS_BACKUP'
+    posTableName = 'NAIVE_LGBM_STRATEGY_POS'
+    tablesToClean = ['NAIVE_LGBM_RECOMMENDATION_HIS_RECORDS', 'NAIVE_LGBM_STRATEGY_HIS_RECORDS']
+    dateField = ['date', 'end_date']
+    cur_pos_table_cols = ['code', 'start_date', 'holding_period', 'open_price', 'current_price', 'volume', 'cost',
+                          'commission',
+                          'floating_PnL', 'time_stamp']
+
+    # restore current position table
+    sql_conn = sql_engine.connect()
+    sql_statement = 'select * from `%s`' % backupPosTableName
+    backup_position = pd.read_sql(sql_statement, sql_conn)
+
+    backup_position.loc[:, 'time_stamp'] = datetime.now()
+
+    backup_position = backup_position[cur_pos_table_cols]
+
+    backup_position.to_sql(posTableName, sql_conn, index=False, if_exists='replace')
+
+    # delete historical records that exceed restore date
+    for tmp_table_name, tmp_date_field in zip(tablesToClean, dateField):
+        sql_statement = "delete from `%s` where `%s` > '%s'" % (tmp_table_name, tmp_date_field, restore_date)
+        sql_conn.execute(sql_statement)
+        print('delete records from table `%s`' % tmp_table_name)
+
+def restore_backup_position():
+    sql_engine = create_engine('mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**ConfigQuant))
+    backup_table_name = 'NAIVE_LGBM_STRATEGY_POS_BACKUP'
+    current_table_name = 'NAIVE_LGBM_STRATEGY_POS'
+
+    restore_date = '2019-01-24'
+
+    sql_conn = sql_engine.connect()
+    sql_statement = "select * from `%s` where `date` = '%s'" % (backup_table_name, restore_date)
+    backup_pos = pd.read_sql(sql_statement, sql_conn)
+
+    backup_pos = backup_pos.drop('date', axis=1)
+    backup_pos.loc[:, 'time_stamp'] = datetime.now()
+
+    sql_statement = 'truncate table `%s`' % current_table_name
+    sql_conn.execute(sql_statement)
+    print(sql_statement)
+
+    backup_pos.to_sql(current_table_name, sql_conn, index=False, if_exists='append')
+
+
 
 def morningTask():
     strategyBasicPreTrade()
+    print('process pre trade successful!')
     strategyBasicActualTrade()
+    print('process actual trade successful!')
 
 def afternoonTask():
     calculateDailyPnL()
+    print('get daily PnL successful!')
     evaluateStrategyPerformance()
+    print('get strategy performance successful!')
+    historicalPredictionPerformance()
+    print('get prediciton evaluation successful!')
 
 
 if __name__ == '__main__':
@@ -974,4 +1134,9 @@ if __name__ == '__main__':
     # calculateDailyPnL()
     # evaluateStrategyPerformance()
     # historicalPredictionPerformance()
+
+    # restoreCurrentPosition('2018-12-13')
+
     # morningTask()
+    # afternoonTask()
+    # restore_backup_position()

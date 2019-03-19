@@ -32,6 +32,7 @@ spider_quote.loc[:, 'date'] = spider_quote['date'].apply(lambda x: datetime.strp
 spider_quote.loc[:, 'date'] = spider_quote['date'].apply(lambda x: datetime.strftime(x, '%Y-%m-%d'))
 
 for tmp_col in ['open', 'high', 'low', 'close', 'volume']:
-    spider_quote.loc[:, tmp_col] = spider_quote[tmp_col].replace({',': ''})
+    spider_quote.loc[:, tmp_col] = spider_quote[tmp_col].apply(lambda x: x.replace(',', ''))
+    spider_quote.loc[:, tmp_col] = spider_quote[tmp_col].astype('float')
 
 print(spider_quote)

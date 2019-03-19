@@ -14,7 +14,7 @@ from Utils.ProcessFunc import renameDF, chgDFDataType
 
 # SOURCE
 sourceTableName = 'stock_list'
-sourceFields = ['code', 'name', 'industry', 'area', 'timeToMarket']
+sourceFields = ['code', 'name', 'industry', 'area', 'list_date']
 sourceTimeStamp = 'update_time'
 
 # TARGET

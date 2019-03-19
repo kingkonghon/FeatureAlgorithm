@@ -205,15 +205,15 @@ if __name__ == '__main__':
     #     features = MacroEconomiesMapping(**i)
     #     features.run()
 
-    # airflowCallableShibor()
+    airflowCallableShibor()
     # airflowCallableOil()
 
     # for i in ConUSIndexStationary:
     #     features = MacroEconomiesStationaryMapping(**i)
     #     features.run()
 
-    features = MacroEconomiesTushareMapping(**ConEcoTS)
-    features.run()
+    # features = MacroEconomiesTushareMapping(**ConEcoTS)
+    # features.run()
 
     eclapsed = time.clock() - start_time
     print("Time eclapsed", eclapsed)

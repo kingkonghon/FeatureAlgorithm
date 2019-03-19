@@ -156,12 +156,12 @@ def airflowCallableHS300StationaryTechnical():
 
 if __name__ == '__main__':
     start_time = time.clock()
-    # for i in CONF:
-    #     features = StockTechnicalIndicatorMapping(**i)
-    #     features.run()
-    #
-    # features = NonStockFeaturesMapping(**ConHS300)
-    # features.run()
+    for i in CONF:
+        features = StockTechnicalIndicatorMapping(**i)
+        features.run()
+
+    features = NonStockFeaturesMapping(**ConHS300)
+    features.run()
 
     for i in CONFStationary:
         features = StockStationaryTechnicalIndicatorMapping(**i)

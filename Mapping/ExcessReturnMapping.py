@@ -104,7 +104,10 @@ class ExcessReturnMapping:
             dataIndexO = readDB(tmp_state, ConfigQuant)
 
             dataStockO = dataStockO.drop_duplicates([self.dateField, self.codeField])
-            dataIndexO = dataIndexO.drop_duplicates([self.dateField, self.categoryField])
+            if self.categoryField == 'HS300':
+                dataIndexO = dataIndexO.drop_duplicates(self.dateField)
+            else:
+                dataIndexO = dataIndexO.drop_duplicates([self.dateField, self.categoryField])
             # dataStockO = dataStockO.fillna(0)
             # dataIndexO = dataIndexO.fillna(0)
 

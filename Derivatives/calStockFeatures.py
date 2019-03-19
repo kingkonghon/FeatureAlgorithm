@@ -28,7 +28,7 @@ ConTech = {
     'condition': '',
     'chunkSize': 50,
     'isMultiProcess': True,
-    'processNum': 4
+    'processNum': 3
 }
 
 ConExc = [
@@ -169,7 +169,7 @@ ConTechStationary = {
     'condition': '',
     'chunkSize': 50,
     'isMultiProcess': True,
-    'processNum': 20
+    'processNum': 2
 }
 
 ConFunStationary = {
@@ -183,7 +183,7 @@ ConFunStationary = {
     'condition': '',
     'chunkSize': 50,
     'isMultiProcess': True,
-    'processNum': 3
+    'processNum': 2
 }
 
 ConFunTushare = {
@@ -287,6 +287,8 @@ if __name__ == '__main__':
     # airflowCallableRankingAllStocks()
 
     # airflowCallableRankingIndustry()
+
+    # airflowCallableStockExcessiveReturnHS300()
 
     # features = StockStationaryTechnicalIndicatorMapping(**ConTechStationary)
     # features.run()
