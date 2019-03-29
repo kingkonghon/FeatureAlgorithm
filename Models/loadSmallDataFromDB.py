@@ -1,9 +1,11 @@
-from multiprocessing import Process, Pipe, Pool
+from multiprocessing import Pool
 import pandas as pd
 import time
 from sqlalchemy import create_engine
+from sqlalchemy.pool import SingletonThreadPool
 from SelectedDBConfigStationary import ConfigQuant, stockQuoteConf, allMergeDataConf, areaConf, allMergeDataConf2
 import time
+import os
 
 # ========================  version features  ===============================
 #  srceen st, listed less than 60 days stocks
@@ -91,17 +93,17 @@ STConfig = {
 }
 
 
-def mergeDataWithoutDate(tot_data, sql_config, table_name, fields, merge_fields):
-    sql_engine = create_engine(
-        'mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**sql_config))
+def mergeDataWithoutDate(tot_data, sql_conn, table_name, fields, merge_fields):
+    t_start = time.time()
 
     field_str = list(map(lambda x: '`%s`' % x, fields))
     field_str = ','.join(field_str)
 
     sql_statement = "select %s from %s" % (field_str, table_name)
-    tmp_conn = sql_engine.connect()
-    data = pd.read_sql(sql_statement, tmp_conn)
-    tmp_conn.close()
+    data = pd.read_sql(sql_statement, sql_conn)
+
+    t_eclipsed = time.time() - t_start
+    print('%s sql time consumed %f' % (table_name, t_eclipsed))
 
     tot_data = tot_data.merge(data, how='left', on=merge_fields)
     return tot_data
@@ -128,23 +130,24 @@ def pivotStockCategory(tot_data, sw_industry, market_name, area_name):
 
     return tot_data
 
-def screenUnwantedStocks(stock_data, st_config, start_date, end_date):
+def screenUnwantedStocks(stock_data, st_config, start_date, end_date, sql_conn):
     # list date num <= 60 days
     stock_data = stock_data.loc[stock_data['LIST_DAYNUM'] > 60]
 
     # ST or &ST
-    sql_engine = create_engine(
-        'mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**st_config['db_config']))
-
     tot_fields = ['code', 'date', st_config['field_name']]
     str_tot_fields = list(map(lambda x: '`%s`'%x, tot_fields))
     str_tot_fields = ','.join(str_tot_fields)
 
+    t_start = time.time()
+
     sql_statement = "select %s from `%s` where (`date` between '%s' and '%s')" % (str_tot_fields,
                                                                                     st_config['table_name'], start_date, end_date)
-    tmp_conn = sql_engine.connect()
-    st_stock_flag = pd.read_sql(sql_statement, tmp_conn)  # load st flag data from DB
-    tmp_conn.close()
+    st_stock_flag = pd.read_sql(sql_statement, sql_conn)  # load st flag data from DB
+
+    t_eclipsed = time.time() - t_start
+    print('%s sql time consumed %f' % (st_config['table_name'], t_eclipsed))
+
     stock_data = stock_data.merge(st_stock_flag, how='left', on=['date', 'code'])
 
     stock_data = stock_data.loc[stock_data[st_config['field_name']] == 0]
@@ -167,6 +170,8 @@ class basicDataClass:
         self.data = []
 
     def load_data(self):
+        t_start = time.time()
+
         # fetch data from db
         str_fields = list(map(lambda x: '`%s`' % x, self.fields))
         str_fields = ','.join(str_fields)
@@ -175,11 +180,14 @@ class basicDataClass:
         data = pd.read_sql(sql_statement, self.sql_conn)
         data = data.drop_duplicates(['date', 'code'])
 
+        t_eclipsed = time.time() - t_start
+        print('%s, sql time consumed %f' % (self.table_name, t_eclipsed))
+
         # close copy of output pipe
         # self.output_pipe.close()
 
         # special data that need to be merge
-        data = mergeDataWithoutDate(tot_data=data, sql_config=ConfigQuant, **areaConf)
+        data = mergeDataWithoutDate(tot_data=data, sql_conn=self.sql_conn, **areaConf)
         data = getStockMarket(data)
 
         self.data = data
@@ -196,9 +204,14 @@ class basicDataClass:
             # if len(merge_dict['data']) == 0:
             #     print('empty:', merge_dict['table_name'])
             # else:
+            t_start = time.time()
+
             tmp_data = merge_dict['data']
             tmp_data = tmp_data.drop_duplicates(merge_dict['merge_cols'])
             self.data = self.data.merge(tmp_data, how='left', on=merge_dict['merge_cols'])
+
+            t_eclipsed = time.time() - t_start
+            print('%s, merging time consumed %f' % (merge_dict['table_name'], t_eclipsed))
             # except EOFError:
             #     break
             # self.final_output_pipe.send(data)
@@ -207,25 +220,24 @@ class basicDataClass:
 
 
 class mergeDataClass:
-    def __init__(self, fields, merge_fields, drop_fields, condition, prefix, start_date, end_date,
-                 table_name, sql_config):
-        # Process.__init__(self)
-        self.sql_engine = create_engine(
-            'mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**self.sql_config))
-        self.sql_conn = None
+    def __init__(self, start_date, end_date, fields, merge_fields, drop_fields, condition, prefix,
+                 table_name):
         self.fields = fields
         self.merge_fields = merge_fields
         self.drop_fields = drop_fields
         self.condition = condition
         self.prefix = prefix
         self.table_name = table_name
-        self.sql_config = sql_config
         self.start_date = start_date
         self.end_date = end_date
         # self.drop_nan_ratio = 0.7
 
     def load_data(self):
-        self.sql_conn = self.sql_engine.connect()
+        global sql_adapter
+
+        t_start = time.time()
+
+        sql_conn = sql_adapter.get_connection(os.getpid())
 
         if type(self.fields).__name__ == 'list':
             str_fields = list(map(lambda x: '`%s`' % x, self.fields))
@@ -237,8 +249,12 @@ class mergeDataClass:
             str_fields, self.table_name, self.start_date, self.end_date)
         if self.condition != '':
             sql_statement = "%s and (%s)" % (sql_statement, self.condition)
-        data = pd.read_sql(sql_statement, self.sql_conn)
+        data = pd.read_sql(sql_statement, sql_conn)
         # self.sql_conn.close()
+
+        t_eclipsed = time.time() - t_start
+        print('%s, sql time consumed %f' % (self.table_name, t_eclipsed))
+        t_start = time.time()
 
         # # drop feature if mostly nan
         # tmp_nan_ratio = data.isnull().sum(axis=0) / data.shape[0]
@@ -284,8 +300,30 @@ class mergeDataClass:
         # print('empty!!', self.table_name)
         # self.output_pipe.close()
         # print('sent', self.table_name)
+
+        t_eclipsed = time.time() - t_start
+        print('%s, processing time consumed %f' % (self.table_name, t_eclipsed))
+
         return merge_dict
 
+
+class sqlConnClass:
+    def __init__(self, sql_config):
+        self.engines = {}
+        self.sql_config = sql_config
+
+    def get_connection(self, pid):
+        if pid in self.engines.keys():
+            return self.engines[pid]  # engine belong to this worker already exists
+        else:
+            self.engines[pid] = create_engine('mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**self.sql_config), poolclass=SingletonThreadPool)
+            print('create engine for pid:', pid)
+            return self.engines[pid]
+
+    def dispose(self):
+        for pid in self.engines.keys():
+            self.engines[pid].dispose()
+        self.engines = {}
 
 # def receiveMergeData(tot_data, input_pipe, merge_num, final_output_pipe):
 #     print('ready to receive the second wave of data...')
@@ -307,34 +345,39 @@ class mergeDataClass:
 # =================== load data function =================
 
 def loadData(start_date, end_date):
-    sql_engine = create_engine(
-        'mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**ConfigQuant))
-    sql_conn = sql_engine.connect()
+    global sql_adapter
+    sql_adapter = sqlConnClass(ConfigQuant)
+    engine_main = sql_adapter.get_connection(os.getpid())
+
+    # sql_engine = create_engine(
+    #     'mysql+pymysql://{user}:{password}@{host}/{db}?charset={charset}'.format(**ConfigQuant))
+    # sql_conn = sql_engine.connect()
+
+    # stock quotes
+    process_basic_data = basicDataClass(start_date=start_date, end_date=end_date, sql_conn = engine_main,
+                                        **stockQuoteConf)
+    process_basic_data.load_data()
 
     # ============= the first wave of data merge ================
     pool = Pool(processes=3)
     process_merge_data = []
-
-    # stock quotes
-    process_basic_data = basicDataClass(sql_config=ConfigQuant, start_date=start_date, end_date=end_date, sql_conn = sql_conn,
-                                        **stockQuoteConf)
-    # process_basic_data.start()
-    # tmp_process = pool.apply_async(process_basic_data.run)
-    # process_merge_data.append(tmp_process)
-    process_basic_data.run()
-
     # data to be merged
     # print(len(allMergeDataConf),"to be merged")
     for conf in allMergeDataConf:
         # tmp_process = mergeDataClass(output_pipe=output_pipe, sql_config=ConfigQuant, start_date=start_date, end_date=end_date, **conf)
         # tmp_process.start()
-        tmp_ins = mergeDataClass(sql_config=ConfigQuant, start_date=start_date, end_date=end_date, **conf)
-        tmp_process = pool.apply_async(tmp_ins.run)
+        tmp_ins = mergeDataClass(start_date=start_date, end_date=end_date, **conf)
+        tmp_process = pool.apply_async(tmp_ins.load_data)
         process_merge_data.append(tmp_process)
 
     for tmp_process in process_merge_data:
+        t_start = time.time()
+
         merge_dict = tmp_process.get()
         process_basic_data.mergeData(merge_dict)
+
+        t_eclipsed = time.time() - t_start
+        print('%d process consumed', t_eclipsed)
 
     # output_pipe.close()
     # final_output_pipe.close()
@@ -345,30 +388,23 @@ def loadData(start_date, end_date):
     #     pass
     # print(process_basic_data.data)
     # print('end of the first wave')
-    pool.terminate()
+    # pool.terminate()
     # ========== the second wave of merge ===========
-    input_pipe2, output_pipe2 = Pipe(True)
-    final_input_pipe2, final_output_pipe2 = Pipe(True)
-
-    pool = Pool(processes=3)
-    # receiver process
-    # receiver_process = Process(target=receiveMergeData, args=(final_data, input_pipe, final_output_pipe))
-    # receiver_process.start()
-    # receiver_process = pool.apply_async(receiveMergeData, (final_data, input_pipe2, len(allMergeDataConf2), final_output_pipe2))
-
-    # data to be merge (send loaded data to receiver process to be merged)
-    # print(len(allMergeDataConf2), 'to be merged')
     process_merge_data = []
     for conf in allMergeDataConf2:
-        tmp_ins = mergeDataClass(output_pipe=output_pipe2, sql_config=ConfigQuant, start_date=start_date,
-                                 end_date=end_date, **conf)
-        tmp_process = pool.apply_async(tmp_ins.run)
+        tmp_ins = mergeDataClass(start_date=start_date, end_date=end_date, **conf)
+        tmp_process = pool.apply_async(tmp_ins.load_data)
         # tmp_process.start()
         process_merge_data.append(tmp_process)
 
     for tmp_process in process_merge_data:
+        t_start = time.time()
+
         merge_dict = tmp_process.get()
         process_basic_data.mergeData(merge_dict)
+
+        t_eclipsed = time.time() - t_start
+        print('%d process consumed', t_eclipsed)
 
     tmp_d_types = process_basic_data.data.dtypes
     print('data object columns:')
@@ -384,20 +420,27 @@ def loadData(start_date, end_date):
     #     pass
     # print('final data shape:', process_basic_data.data.shape)
     # pass
-    pool.terminate()
+    # pool.terminate()
 
     # ====== screen data ======
-    process_basic_data.data = screenUnwantedStocks(process_basic_data.data, STConfig, start_date, end_date)
+    t_start = time.time()
+
+    process_basic_data.data = screenUnwantedStocks(process_basic_data.data, STConfig, start_date, end_date, engine_main)
     process_basic_data.data = process_basic_data.data.reset_index()
     process_basic_data.data = process_basic_data.data.drop('index', axis=1)
 
+    t_eclipsed = time.time() - t_start
+    print('screen data time consumed', t_eclipsed)
+
     # ====== convert industry to dummy variables ======
+    t_start = time.time()
+
     chunk_size = 50000
     chunk_num = int(process_basic_data.data.shape[0] / chunk_size)
     if chunk_num * chunk_size < process_basic_data.data.shape[0]:
         chunk_num += 1
 
-    pool = Pool(processes=3)
+    # pool = Pool(processes=3)
     tot_child_process = []
     for i in range(chunk_num):
         tmp_data = process_basic_data.data.iloc[i * chunk_size: (i + 1) * chunk_size]
@@ -409,8 +452,12 @@ def loadData(start_date, end_date):
         tmp_data = tmp_process.get()
         tot_data = tot_data.append(tmp_data)
 
+    t_eclipsed = time.time() - t_start
+    print('one-hot time consumed', t_eclipsed)
+
     # return process_basic_data.data
     pool.terminate()
+    sql_adapter.dispose()
 
     print('data shape:',tot_data.shape)
     print('data time range: %s - %s' % (tot_data['date'].min(), tot_data['date'].max()))
@@ -418,13 +465,14 @@ def loadData(start_date, end_date):
 
 
 if __name__ == '__main__':
-    tic = time.clock()
+    tic = time.time()
     start_date = '2018-12-11'
     end_date = '2018-12-11'
 
+    sql_adapter = None
     final_data = loadData(start_date, end_date)
 
-    toc =time.clock()
+    toc =time.time()
     print('time eclipsed:', toc-tic)
 
     print(final_data)
